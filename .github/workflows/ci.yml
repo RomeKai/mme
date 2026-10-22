@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e .
+      - run: git config --global user.email ci@example.com && git config --global user.name ci
+      - run: python -m unittest discover -s tests -v
+      - run: bash -n src/mme/gateway/*.sh
+      - name: compose file is valid
+        run: POSTGRES_PASSWORD=x MME_GATEWAY_CONFIG=/tmp/c.yaml MME_PKG=$PWD/src/mme docker compose -f src/mme/gateway/docker-compose.yml --profile mock config -q

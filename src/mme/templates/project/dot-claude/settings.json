@@ -1,0 +1,106 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python3 -m unittest:*)",
+      "Bash(ruff:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(rg:*)",
+      "Bash(mme today:*)",
+      "Bash(mme gate:*)",
+      "Bash(mme credits:*)",
+      "Bash(mme budget show:*)",
+      "Bash(mme night status:*)"
+    ],
+    "ask": [
+      "Bash(mme smoke:*)",
+      "Bash(claude -p:*)",
+      "Bash(mme night run:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./.cache/**)",
+      "Read(./**/*.png)",
+      "Read(./**/*.min.js)",
+      "Read(./**/yarn.lock)",
+      "Read(./**/package-lock.json)",
+      "Read(./**/site-packages/**)",
+      "Read(./.venv/**)",
+      "Read(./node_modules/**)",
+      "Read(./web/node_modules/**)",
+      "Read(./dist/**)",
+      "Read(./samples/replay/**)",
+      "Read(./.mme/**)",
+      "Read(./**/*.dxf)",
+      "Bash(curl*api.meta.ai*)",
+      "Bash(git push --force:*)",
+      "Bash(rm -rf:*)",
+      "Bash(*/key/*)",
+      "Bash(printenv*)",
+      "Bash(env)",
+      "Bash(env |*)",
+      "Bash(mme policy:*)",
+      "Bash(mme use:*)",
+      "Bash(mme fallback:*)",
+      "Bash(mme watchdog --unblock*)",
+      "Bash(mme budget sync*)",
+      "Bash(mme gateway:*)"
+    ]
+  },
+  "env": {
+    "MME_MODE": "replay",
+    "MAX_THINKING_TOKENS": "10000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mme hook session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mme hook loop-breaker"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mme hook loop-breaker"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mme hook loop-breaker"
+          }
+        ]
+      }
+    ]
+  }
+}

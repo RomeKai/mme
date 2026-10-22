@@ -1,0 +1,73 @@
+# MME gateway: LiteLLM + Postgres (+ optional provider mock for drills). Driven by `mme gateway ...`,
+# which sets MME_GATEWAY_CONFIG, MME_PKG and loads the project's .env.
+#
+# Networks
+#   backend  internal: true  -> no internet. Postgres lives only here: unreachable from host and internet.
+#   egress   normal bridge   -> only litellm (needs the provider API) and the mock (to publish its control port).
+# Persistence
+#   EXTERNAL volume mme-litellm-db (created by `mme gateway up`): keys, budgets and spend survive restarts,
+#   `down`, and even `down -v`.
+name: mme-gateway
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: litellm
+    volumes: ["litellm-db:/var/lib/postgresql/data"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt: ["no-new-privileges:true"]
+
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-stable}   # pin after `mme gateway check` prints the version
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["127.0.0.1:4000:4000"]
+    volumes: ["${MME_GATEWAY_CONFIG:?run via mme gateway}:/app/config.yaml:ro"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    networks: [backend, egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+
+  meta-mock:
+    profiles: [mock]
+    image: python:3.12-alpine
+    environment:
+      MOCK_API_KEY: ${MOCK_API_KEY:-mock-key}
+      MOCK_PROVIDER_FILE: /provider/meta.json
+    volumes:
+      - "${MME_PKG:?run via mme gateway}/mock:/app:ro"
+      - "${MME_PKG}/providers:/provider:ro"
+    command: ["python", "/app/meta_mock.py", "--host", "0.0.0.0", "--port", "8090"]
+    ports: ["127.0.0.1:8090:8090"]
+    networks: [backend, egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 3s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  backend:
+    internal: true
+  egress: {}
+
+volumes:
+  litellm-db:
+    external: true
+    name: mme-litellm-db

@@ -1,0 +1,12 @@
+# --- MME (never commit .env) ---
+MODEL_API_KEY=             # provider key (Meta: dev.meta.ai)
+MME_MODE=live              # product client: live | replay | off
+MME_HARD_STOP_USD=100      # product spend cap (ledger)
+MME_TOTAL_CREDITS_USD=150  # your total credit pool, for reports
+MME_PRIVATE=0              # 1 = never use *-contributor models (they may train on your data)
+LITELLM_MASTER_KEY=sk-change-me-long-random
+POSTGRES_PASSWORD=change-me-too
+MME_GATEWAY_TOTAL_USD=60   # hard cap for everything through the gateway
+MME_GATEWAY_KEY=           # day key, printed by `mme gateway up`
+MME_NIGHT_KEY=             # night key, printed by `mme gateway up`
+# LITELLM_IMAGE=ghcr.io/berriai/litellm:<pin the version `mme gateway check` prints>

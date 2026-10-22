@@ -1,0 +1,21 @@
+# Milestones with EXECUTABLE gates. `mme today` shows where you are; `mme gate` runs today's (and late) gates.
+# A gate is a shell command run from the project root that exits 0 when the milestone is really done.
+deadline: "{{END}}T21:00:00-05:00"            # official (with timezone!)
+internal_deadline: "{{END}}T18:00:00-03:00"   # yours: submit before this
+freeze: "{{FREEZE}}"                          # feature freeze: from this day only fixes/polish
+test_cmd: "MME_MODE=replay python -m pytest -q"
+
+milestones:
+  - day: "{{START}}"
+    goal: "Skeleton running end to end"
+    gates:
+      - name: "tests green"
+        run: "MME_MODE=replay python -m pytest -q"
+    cut_if_late: []
+
+ship:
+  readme: README.md
+  replay_dir: samples/replay
+  deploy_url: ""                 # fill once deployed
+  demo_url_pattern: "youtu|loom|vimeo|drive\\.google"
+  extra: []

@@ -1,0 +1,40 @@
+{
+  "name": "meta",
+  "display": "Meta Model API",
+  "checked": "2026-10-22",
+  "sources": [
+    "https://dev.meta.ai/products/meta-model-api",
+    "https://dev.meta.ai/docs/pricing-rate-limits",
+    "https://dev.meta.ai/docs/coding-agents"
+  ],
+  "base_url": "https://api.meta.ai/v1",
+  "anthropic_base_url": "https://api.meta.ai",
+  "key_env": "MODEL_API_KEY",
+  "text_models": {
+    "muse-wonder-1.0":            {"input": 4.00, "cached": 0.20,  "output": 20.00, "rpm": 3000, "tpm": 4000000, "context": 1048576},
+    "muse-spark-1.3":             {"input": 1.25, "cached": 0.15,  "output": 4.25,  "rpm": 3000, "tpm": 4000000, "context": 1048576},
+    "muse-spark-1.2":             {"input": 1.25, "cached": 0.15,  "output": 4.25,  "rpm": 3000, "tpm": 4000000, "context": 1048576},
+    "muse-spark-1.1":             {"input": 1.25, "cached": 0.15,  "output": 4.25,  "rpm": 3000, "tpm": 4000000, "context": 1048576},
+    "muse-spark-1.3-contributor": {"input": 0.10, "cached": 0.002, "output": 0.20,  "rpm": 150,  "tpm": 3000000, "context": 1048576, "trains_on_data": true},
+    "muse-spark-1.2-contributor": {"input": 0.10, "cached": 0.002, "output": 0.20,  "rpm": 150,  "tpm": 3000000, "context": 1048576, "trains_on_data": true}
+  },
+  "unit_models": {
+    "muse-image-1.0":            {"unit": "image",  "usd": 0.01,     "rpm": 150},
+    "sam-3.1":                   {"unit": "image",  "usd": 0.0025,   "frame_usd": 0.0002, "rpm": 3000},
+    "muse-voice-transcribe-1.0": {"unit": "second", "usd": 0.00005}
+  },
+  "tiers": {
+    "draft": "muse-spark-1.3-contributor",
+    "standard": "muse-spark-1.3",
+    "max": "muse-wonder-1.0"
+  },
+  "harness": {
+    "cheap": "muse-spark-1.3-contributor",
+    "cheap_private": "muse-spark-1.3",
+    "heavy": "muse-wonder-1.0"
+  },
+  "gateway": {
+    "models": ["muse-spark-1.3-contributor", "muse-spark-1.3", "muse-wonder-1.0"],
+    "fallbacks": {"muse-spark-1.3-contributor": ["muse-spark-1.3"]}
+  }
+}

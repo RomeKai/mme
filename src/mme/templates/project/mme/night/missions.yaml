@@ -1,0 +1,27 @@
+# Night missions: complex, pre-defined work that runs while you sleep.
+#   1. write/adjust missions here (commit them)
+#   2. `mme night prep`   pre-flight + the agent asks its questions, you answer (2-5 min)
+#   3. `mme night run --until 07:30`
+#   4. morning: read NIGHT_REPORT.md, review each branch, merge what's good
+#
+# Templates: feature (plan->build->harden->review), fix (reproduce->fix->review), tests (write->review),
+#            single (one stage), custom (write `stages:` yourself). Review is capped by budget.json night.review_max_usd.
+# Good night missions: clear goal, explicit scope, an acceptance `verify` that proves it's done.
+# Keep for daytime: open-ended design, UI taste, anything you'd want to watch.
+
+defaults:
+  harness: gateway          # gateway (Claude Code + ECC via the night key) | muse-code
+  base: main
+  timeout_min: 120
+
+missions:
+  - id: example-mission
+    status: skip            # draft (needs prep) | skip
+    template: feature
+    budget_usd: 2.0
+    goal: |
+      Describe the outcome, the constraints and what "good" looks like. The agent will ask you about anything
+      ambiguous during `mme night prep`.
+    context: [AGENTS.md]
+    scope: ["src/**", "tests/**"]
+    verify: "MME_MODE=replay python -m pytest -q"
