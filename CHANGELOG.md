@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- `mme gateway up --mock`: the full gateway (Postgres + LiteLLM + keys + budgets) against the mock upstream, for rehearsals.
+- Night missions accept `harness: claude` (policy-gated, unmetered) so the night flow can be rehearsed before provider keys exist.
+
 ## 0.2.0 — 2026-10-22
 - `mme.client.respond()` (Responses API with tools + `previous_response_id`), `tool_calls()`, `output_text()`,
   `record_unit()`. The mock emits a function call when tools are present, so agent loops can be tested offline.

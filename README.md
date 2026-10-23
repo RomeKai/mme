@@ -15,7 +15,7 @@ ECC gives your agent a way of working: plan → test → implement → review. M
 | "Are we on track?" | **Milestones with executable gates**, `mme today` countdown + "behind / cut this", `mme ship` submission checklist |
 | Product calls cost money in tests | `mme.client`: tiers, disk cache, **replay mode** ($0 tests and demos), ledger, hard stop |
 | Prices and model IDs drift | **One provider catalog** (`providers/meta.json`). It feeds cost math, the gateway config, harness mapping, the mock and the docs |
-| You can't test any of this without a key | A **local mock** of the API plus a gateway **fire drill** (`mme gateway drill`) |
+| You can't test any of this without a key | A **local mock** of the API plus a gateway **fire drill** (`mme gateway drill`), the whole gateway against the mock (`mme gateway up --mock`), and night missions rehearsable on `harness: claude` |
 
 > Status: **0.2, pre-release.** Built for the Meta Global AI Developer Hackathon (Oct–Nov 2026). Endpoints and
 > prices were checked against dev.meta.ai on 2026-10-22. The [unverified items](#known-gaps) are listed, not hidden.
