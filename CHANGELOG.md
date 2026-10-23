@@ -13,5 +13,5 @@
 - Budget: `prelaunch_usd`, nested `night` settings (`review_max_usd`).
 
 ## 0.1.0 — 2026-10-22
-- First kit inside ArchProto: harness policies, LiteLLM gateway with budgets, loop breaker, watchdog, mock and drill,
+- First kit inside Maqet: harness policies, LiteLLM gateway with budgets, loop breaker, watchdog, mock and drill,
   variable budget, simple night tasks.
