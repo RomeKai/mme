@@ -27,5 +27,14 @@ from mme.client import client
 data = client().chat_json(messages, json_schema=Model.model_json_schema(), tier="draft",
                           tag="brief->program", prompt_cache_key="brief-v1")
 ```
+Multi-turn agent with tools (Responses API keeps reasoning across turns):
+```python
+r = client().respond(user_text, tools=TOOLS, instructions=SYSTEM, previous_response_id=last_id, tier="draft", tag="agent")
+for call in client().tool_calls(r):   # [{call_id, name, arguments}]
+    ...run the tool, then send [{"type": "function_call_output", "call_id": ..., "output": json}] with previous_response_id=r["id"]
+text = client().output_text(r)
+```
+Unit-priced calls you make yourself (SAM, voice): `client().record_unit("sam-3.1", n_images, tag="sam")`.
+
 Tiers: draft (iteration, tests) · standard (evals, demo recordings) · max (only when standard measurably fails).
 Never import a provider SDK in product code.

@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.2.0 — 2026-10-22
+- `mme.client.respond()` (Responses API with tools + `previous_response_id`), `tool_calls()`, `output_text()`,
+  `record_unit()`. The mock emits a function call when tools are present, so agent loops can be tested offline.
 - Standalone package with a single `mme` CLI, `mme init` and `mme doctor`.
 - Provider catalog (`providers/meta.json`) as the single source of model IDs, prices and limits. The gateway config is generated from it.
 - Night **missions**: briefing (`mme night prep`), templates (feature/fix/tests/single/custom), staged runs with

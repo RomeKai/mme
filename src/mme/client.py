@@ -176,6 +176,64 @@ class MME:
         data = self.chat(messages, json_schema=json_schema, **kw)
         return json.loads(data["choices"][0]["message"]["content"])
 
+    def respond(
+        self,
+        input: str | list[dict[str, Any]],
+        *,
+        tier: str = "draft",
+        tag: str = "untagged",
+        tools: list[dict[str, Any]] | None = None,
+        instructions: str | None = None,
+        previous_response_id: str | None = None,
+        use_cache: bool = True,
+        **params: Any,
+    ) -> dict[str, Any]:
+        """Responses API call (`POST /v1/responses`): Meta's recommended default for multi-turn agents.
+
+        Pass `previous_response_id` to keep the model's reasoning across turns, which Chat Completions loses.
+        Returns the raw response; use `output_text()` / `tool_calls()` to read it.
+        """
+        model = self.model_for(tier)
+        payload: dict[str, Any] = {"model": model, "input": input, **params}
+        if tools:
+            payload["tools"] = tools
+        if instructions:
+            payload["instructions"] = instructions
+        if previous_response_id:
+            payload["previous_response_id"] = previous_response_id
+        data, hit = self._post("responses", payload, use_cache=use_cache)
+        if not hit:
+            u = data.get("usage") or {}
+            inp = int(u.get("input_tokens", 0))
+            cached = int((u.get("input_tokens_details") or {}).get("cached_tokens", 0))
+            out = int(u.get("output_tokens", 0))
+            self.record(model=model, cost_usd=providers.text_cost(model, inp, cached, out), tag=tag,
+                        input_tokens=inp, cached_tokens=cached, output_tokens=out)
+        return data
+
+    @staticmethod
+    def output_text(response: dict[str, Any]) -> str:
+        parts = []
+        for item in response.get("output", []):
+            if item.get("type") == "message":
+                parts += [c.get("text", "") for c in item.get("content", []) if c.get("type") == "output_text"]
+        return "".join(parts)
+
+    @staticmethod
+    def tool_calls(response: dict[str, Any]) -> list[dict[str, Any]]:
+        """[{call_id, name, arguments(dict)}] for every function call in the response."""
+        calls = []
+        for item in response.get("output", []):
+            if item.get("type") == "function_call":
+                args = item.get("arguments") or "{}"
+                calls.append({"call_id": item.get("call_id") or item.get("id"), "name": item.get("name"),
+                              "arguments": json.loads(args) if isinstance(args, str) else args})
+        return calls
+
+    def record_unit(self, model: str, units: float, *, tag: str, kind: str = "usd") -> None:
+        """Ledger entry for unit-priced models the client doesn't call itself yet (SAM 3.1, Voice Transcribe)."""
+        self.record(model=model, cost_usd=providers.unit_cost(model, units, kind), tag=tag, units=units)
+
     def image_generate(self, prompt: str, *, tag: str = "render", n: int = 1, use_cache: bool = True, **params: Any) -> list[bytes]:
         """Muse Image text->image. Returns PNG/JPEG bytes. $0.01 per returned image."""
         payload = {"model": "muse-image-1.0", "prompt": prompt, "n": n, "response_format": "b64_json", **params}

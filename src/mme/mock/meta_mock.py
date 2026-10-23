@@ -246,9 +246,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         STATE.tick(f"model:{model}")
         inp, cached, out = usage_numbers(body)
+        items = body.get("input") if isinstance(body.get("input"), list) else []
+        answered = any(isinstance(i, dict) and i.get("type") == "function_call_output" for i in items)
+        tools = [t for t in body.get("tools", []) if t.get("type", "function") == "function"]
+        if tools and not answered:  # agent-loop shape: first call a tool, then answer once its output comes back
+            output = [{"type": "function_call", "id": f"fc_{uuid.uuid4().hex[:12]}", "call_id": f"call_{uuid.uuid4().hex[:12]}",
+                       "name": tools[0].get("name"), "arguments": "{}"}]
+        else:
+            output = [{"type": "message", "role": "assistant",
+                       "content": [{"type": "output_text", "text": f"[mock {model}] ok"}]}]
         self._json(200, {"id": f"resp_{uuid.uuid4().hex[:20]}", "object": "response", "model": model, "status": "completed",
-                         "output": [{"type": "message", "role": "assistant",
-                                     "content": [{"type": "output_text", "text": f"[mock {model}] ok"}]}],
+                         "output": output,
                          "usage": {"input_tokens": inp, "output_tokens": out,
                                    "input_tokens_details": {"cached_tokens": cached}}})
 

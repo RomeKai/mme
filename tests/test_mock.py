@@ -87,6 +87,25 @@ class MockTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 429)
         self.scenario({"models": []})
 
+    def test_responses_tool_loop_and_cost(self):
+        m = self.client()
+        tools = [{"type": "function", "name": "set_material", "parameters": {"type": "object", "properties": {}}}]
+        r1 = m.respond("oak floor please", tools=tools, tag="agent", use_cache=False)
+        calls = m.tool_calls(r1)
+        self.assertEqual(calls[0]["name"], "set_material")
+        self.assertEqual(calls[0]["arguments"], {})
+        r2 = m.respond([{"type": "function_call_output", "call_id": calls[0]["call_id"], "output": "ok"}],
+                       tools=tools, previous_response_id=r1["id"], tag="agent", use_cache=False)
+        self.assertIn("ok", m.output_text(r2))
+        rows = [json.loads(l) for l in m.ledger_path.read_text().splitlines()]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(r["tag"] == "agent" and r["cost_usd"] > 0 for r in rows))
+
+    def test_record_unit(self):
+        m = self.client()
+        m.record_unit("sam-3.1", 4, tag="sam")
+        self.assertAlmostEqual(m.spent(), 0.01)
+
     def test_unknown_model_404_like_meta(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/v1/chat/completions", {"model": "gpt-x", "messages": []})
