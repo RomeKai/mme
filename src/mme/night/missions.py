@@ -258,6 +258,7 @@ def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
         env["ANTHROPIC_AUTH_TOKEN"] = os.environ.get(token_var, "")
     elif m.harness == "muse-code":
         env["META_API_KEY"] = os.environ.get("MODEL_API_KEY", "")
+    # harness "claude": ANTHROPIC_* already stripped -> Claude Code uses your own login (Anthropic plan, no Meta credits)
     return env
 
 
@@ -265,7 +266,7 @@ def agent_cmd(m: Mission, prompt: str, turns: int, readonly: bool) -> list[str]:
     override = os.environ.get("MME_NIGHT_AGENT_CMD")  # tests / custom harness: prompt is the last argument
     if override:
         return [*override.split(), prompt]
-    if m.harness == "gateway":
+    if m.harness in ("gateway", "claude"):
         cmd = ["claude", "-p", prompt, "--max-turns", str(turns), "--output-format", "json"]
         cmd += ["--allowedTools", "Read,Grep,Glob"] if readonly else ["--permission-mode", "acceptEdits"]
         return cmd
@@ -559,8 +560,15 @@ def run(args, spend: SpendFn | None = None, now: Callable[[], dt.datetime] = dt.
               and any(m.id == k and m.spec_hash == v["hash"] for m in missions)}
     only = set(args.only.split(",")) if args.only else None
     queue, skipped = [], []
+    policy = harness.read_policy()
     for m in missions:
         if m.status == "skip" or (only and m.id not in only) or m.id in passed:
+            continue
+        if m.harness not in ("gateway", "muse-code", "claude"):
+            skipped.append((m.id, f"unknown harness '{m.harness}'"))
+            continue
+        if not harness.allowed(policy, "claude" if m.harness == "claude" else "gateway" if m.harness == "gateway" else m.harness):
+            skipped.append((m.id, f"harness '{m.harness}' not allowed by policy '{policy}'"))
             continue
         if not is_ready(m):
             skipped.append((m.id, "not briefed: run `mme night prep`"))

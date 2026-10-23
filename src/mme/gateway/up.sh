@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# mme gateway up [--openai]
+# mme gateway up [--openai | --mock]
 # Brings up the gateway and mints two keys:
 #   day key   (MME_GATEWAY_KEY) cumulative spend; `mme budget sync` moves its cap daily (rollover)
 #   night key (MME_NIGHT_KEY)   its own pool for unattended missions, 2 parallel requests max
@@ -12,7 +12,12 @@ MODELS=$("$MME_PYTHON" -c 'import json; from mme import providers; print(json.du
 
 docker volume inspect mme-litellm-db >/dev/null 2>&1 || docker volume create mme-litellm-db >/dev/null
 $MME_BIN gateway render "$@"
-docker compose up -d --wait litellm
+if [[ " $* " == *" --mock "* ]]; then
+  echo "MOCK upstream: nothing reaches Meta; spend is simulated. Mint fresh keys before kickoff (see RUNBOOK)."
+  docker compose --profile mock up -d --wait
+else
+  docker compose up -d --wait litellm
+fi
 echo "gateway healthy on http://127.0.0.1:4000"
 
 mint() {  # alias max_budget parallel

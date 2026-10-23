@@ -235,6 +235,31 @@ class MissionsTest(unittest.TestCase):
             ms.run(self.args(dry_run=True))
         self.assertIn("plan $0.20 -> build $1.20 -> harden $0.40 -> review $0.20", buf.getvalue())
 
+    def test_claude_harness_runs_when_policy_allows(self):
+        self.write_missions("c1", template="single", extra="    harness: claude\n")
+        subprocess.run(["git", "commit", "-qam", "claude mission"], cwd=self.repo, capture_output=True)
+        self.prep_yes()
+        os.environ.pop("MME_NIGHT_KEY")
+        ms.run(self.args(), spend=lambda: 0.0)
+        self.assertEqual(self.results()["c1"]["result"], "PASS")
+        env = ms.agent_env(ms.load_missions()[0], "MME_NIGHT_KEY", "build", "do")
+        self.assertFalse(any(k.startswith("ANTHROPIC_") for k in env))
+
+    def test_claude_harness_refused_under_meta_only(self):
+        (self.repo / "mme" / "policy.env").write_text("MME_POLICY=meta-only\n")
+        self.write_missions("c2", template="single", extra="    harness: claude\n")
+        subprocess.run(["git", "add", "-A"], cwd=self.repo)
+        subprocess.run(["git", "commit", "-qm", "policy"], cwd=self.repo, capture_output=True)
+        self.prep_yes()
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ms.run(self.args(dry_run=True))
+        self.assertIn("not allowed by policy 'meta-only'", buf.getvalue())
+        ms.run(self.args(), spend=lambda: 0.0)
+        self.assertFalse((self.repo / ".mme/night/state.json").exists())
+
     def test_parse_json_reply_variants(self):
         self.assertEqual(ms.parse_json_reply('{"questions": []}'), {"questions": []})
         self.assertEqual(ms.parse_json_reply(json.dumps({"result": 'ok {"questions": [1]} bye'}))["questions"], [1])
