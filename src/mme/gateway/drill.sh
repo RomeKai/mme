@@ -5,7 +5,7 @@
 # the watchdog blocks a burst, the inside-Meta fallback works on 429, and spend survives a restart.
 # Leaves your real config untouched at the end (re-renders it) and deletes the drill key.
 set -uo pipefail
-: "${MME_PKG:?run via: mme gateway drill}" "${MME_BIN:?}" "${LITELLM_MASTER_KEY:?}" "${POSTGRES_PASSWORD:?}"
+: "${MME_PKG:?run via: mme gateway drill}" "${MME_BIN:?}" "${MME_PYTHON:?}" "${LITELLM_MASTER_KEY:?}" "${POSTGRES_PASSWORD:?}"
 cd "$MME_PKG/gateway"
 GW=http://127.0.0.1:4000; MOCK=http://127.0.0.1:8090
 M="Authorization: Bearer $LITELLM_MASTER_KEY"
@@ -13,7 +13,7 @@ pass=0; fail=0
 ok()  { echo "PASS  $1"; pass=$((pass+1)); }
 bad() { echo "FAIL  $1"; fail=$((fail+1)); }
 scenario() { curl -fsS "$MOCK/_mock/scenario" -H 'content-type: application/json' -d "$1" >/dev/null; }
-spend() { curl -fsS "$GW/key/info?key=$1" -H "$M" | python3 -c 'import json,sys;i=json.load(sys.stdin);print((i.get("info") or i).get("spend") or 0)'; }
+spend() { curl -fsS "$GW/key/info?key=$1" -H "$M" | "$MME_PYTHON" -c 'import json,sys;i=json.load(sys.stdin);print((i.get("info") or i).get("spend") or 0)'; }
 call() {  # $1 key, $2 model -> http code
   curl -sS -o /tmp/drill.json -w '%{http_code}' "$GW/v1/messages" -H "Authorization: Bearer $1" \
     -H 'content-type: application/json' -H 'anthropic-version: 2023-06-01' \
@@ -22,23 +22,26 @@ call() {  # $1 key, $2 model -> http code
 
 echo "== 1. Up with mock upstream"
 docker volume inspect mme-litellm-db >/dev/null 2>&1 || docker volume create mme-litellm-db >/dev/null
-$MME_BIN gateway render --mock || exit 1
+"$MME_PYTHON" -m mme gateway render --mock || exit 1
 docker compose --profile mock up -d --wait || { echo "compose failed"; exit 1; }
 docker compose restart litellm >/dev/null && docker compose up -d --wait litellm >/dev/null
 
 KEY=$(curl -fsS "$GW/key/generate" -H "$M" -H 'content-type: application/json' \
-  -d '{"key_alias":"drill","models":["muse-spark-1.3-contributor","muse-spark-1.3","muse-wonder-1.0"],"max_budget":0.5,"budget_duration":"1d","max_parallel_requests":4}' \
-  | python3 -c 'import json,sys;print(json.load(sys.stdin)["key"])') || { echo "key mint failed"; exit 1; }
+  -d '{"key_alias":"drill","models":["muse-spark-1.3-contributor","muse-spark-1.3","muse-wonder-1.0"],"max_budget":0.5,"budget_duration":"1d","max_parallel_requests":4,"budget_limits":[{"budget_duration":"1d","max_budget":1000000}]}' \
+  | "$MME_PYTHON" -c 'import json,sys;print(json.load(sys.stdin)["key"])') || { echo "key mint failed"; exit 1; }
 
 echo "== 2. Basic routing"
 scenario '{"mode":"normal","cached_ratio":0.5}'
 [ "$(call "$KEY" muse-spark-1.3-contributor)" = 200 ] && ok "messages via gateway" || bad "messages via gateway: $(head -c 200 /tmp/drill.json)"
-AUTH=$(curl -fsS "$MOCK/_mock/stats" | python3 -c 'import json,sys;s=json.load(sys.stdin)["stats"];print(",".join(k for k in s if k.startswith("auth:")))')
+AUTH=$(curl -fsS "$MOCK/_mock/stats" | "$MME_PYTHON" -c 'import json,sys;s=json.load(sys.stdin)["stats"];print(",".join(k for k in s if k.startswith("auth:")))')
 echo "      auth header LiteLLM sent upstream: $AUTH  (real Meta wants bearer; if only x-api-key, plan for --openai)"
 
 echo "== 3. Spend is priced"
-sleep 3
-S=$(spend "$KEY"); python3 -c "import sys;sys.exit(0 if float('$S')>0 else 1)" && ok "spend recorded (\$$S)" || bad "spend is 0: model_info pricing not applied"
+for _ in $(seq 1 15); do  # LiteLLM batches spend writes to the DB every ~10-15 s
+  sleep 2; S=$(spend "$KEY")
+  "$MME_PYTHON" -c "import sys;sys.exit(0 if float('$S')>0 else 1)" && break
+done
+"$MME_PYTHON" -c "import sys;sys.exit(0 if float('$S')>0 else 1)" && ok "spend recorded (\$$S)" || bad "spend is 0: model_info pricing not applied"
 
 echo "== 4. Inside-Meta fallback on 429 (contributor -> standard)"
 scenario '{"mode":"rate_limit","every":1,"models":["muse-spark-1.3-contributor"]}'
@@ -48,7 +51,7 @@ scenario '{"mode":"normal","models":[]}'
   || bad "fallback not working (HTTP $code: $(head -c 200 /tmp/drill.json)); check router_settings.fallbacks"
 
 echo "== 5. Watchdog blocks a burst"
-MME_GATEWAY_KEY=$KEY timeout 60 $MME_BIN watchdog --usd 0.05 --minutes 5 --poll 2 --no-budget-sync > /tmp/drill_wd.log 2>&1 &
+MME_GATEWAY_KEY=$KEY timeout 60 "$MME_PYTHON" -m mme watchdog --usd 0.05 --minutes 5 --poll 2 --no-budget-sync > /tmp/drill_wd.log 2>&1 &
 WD=$!; sleep 3
 scenario '{"mode":"burn","burn_tokens":300000,"cached_ratio":0}'
 for _ in 1 2 3; do call "$KEY" muse-spark-1.3 >/dev/null; sleep 3; done
@@ -71,6 +74,6 @@ echo "== Cleanup"
 scenario '{"mode":"normal","models":[]}'
 curl -fsS "$GW/key/delete" -H "$M" -H 'content-type: application/json' -d "{\"keys\":[\"$KEY\"]}" >/dev/null && echo "drill key deleted"
 docker compose --profile mock stop meta-mock >/dev/null
-if [ -n "${MODEL_API_KEY:-}" ]; then $MME_BIN gateway render && docker compose restart litellm >/dev/null && echo "real config restored"; fi
+if [ -n "${MODEL_API_KEY:-}" ]; then "$MME_PYTHON" -m mme gateway render && docker compose restart litellm >/dev/null && echo "real config restored"; fi
 echo; echo "drill: $pass passed, $fail failed"
 [ $fail = 0 ]
