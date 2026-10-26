@@ -5,7 +5,15 @@
 set -uo pipefail
 : "${MME_GATEWAY_KEY:?run mme gateway up and add MME_GATEWAY_KEY to .env}" "${LITELLM_MASTER_KEY:?}"
 GW=http://127.0.0.1:4000
-echo "LiteLLM version: $(curl -fsS $GW/health/readiness | "$MME_PYTHON" -c 'import json,sys;print(json.load(sys.stdin).get("litellm_version","?"))' 2>/dev/null)"
+# Recent LiteLLM no longer reports its version on /health/readiness: ask the running container instead.
+CID=$(docker ps -q --filter label=com.docker.compose.project=mme-gateway --filter label=com.docker.compose.service=litellm | head -1)
+if [ -n "$CID" ]; then
+  echo "LiteLLM version: $(docker exec "$CID" python -c 'import importlib.metadata as m; print(m.version("litellm"))' 2>/dev/null || echo '?')"
+  DIGEST=$(docker image inspect "$(docker inspect "$CID" --format '{{.Image}}')" --format '{{index .RepoDigests 0}}' 2>/dev/null)
+  [ -n "$DIGEST" ] && echo "Pin it in .env:  LITELLM_IMAGE=$DIGEST"
+else
+  echo "LiteLLM version: ? (container not found)"
+fi
 
 ok=1
 for m in $("$MME_PYTHON" -c 'from mme import providers; print(" ".join(providers.load()["gateway"]["models"][:2]))'); do
@@ -18,6 +26,6 @@ done
 
 echo "Key spend so far:"
 curl -fsS "$GW/key/info?key=$MME_GATEWAY_KEY" -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  | "$MME_PYTHON" -c 'import json,sys; i=json.load(sys.stdin).get("info",{}); print(f"  spend=${i.get(\"spend\")}  max_budget=${i.get(\"max_budget\")}  resets={i.get(\"budget_reset_at\")}")'
+  | "$MME_PYTHON" -c 'import json,sys; i=json.load(sys.stdin).get("info",{}); print("  spend=$%s  max_budget=$%s  resets=%s" % (i.get("spend"), i.get("max_budget"), i.get("budget_reset_at")))'
 echo "If spend is 0 after the calls above, pricing isn't being applied: check model_info in the config."
 [ $ok = 1 ]
