@@ -38,6 +38,7 @@ from typing import Callable
 
 from mme import budget, harness, providers
 from mme.paths import config_dir, project_root, state_dir
+from mme.shell import shell_args
 
 # ---------------------------------------------------------------- templates
 TEMPLATES: dict[str, list[dict]] = {
@@ -245,7 +246,8 @@ def decisions_text(m: Mission) -> str:
 
 # ---------------------------------------------------------------- agent plumbing
 def sh(cmd, cwd: Path, timeout: float = 600) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, shell=isinstance(cmd, str))
+    args, use_shell = shell_args(cmd) if isinstance(cmd, str) else (cmd, False)
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, shell=use_shell)
 
 
 def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:

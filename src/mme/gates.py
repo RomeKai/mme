@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from mme.paths import config_dir, project_root, state_dir
+from mme.shell import shell_args
 
 
 def load(path: Path | None = None) -> dict:
@@ -47,7 +48,8 @@ def parse_ts(s: str) -> dt.datetime:
 
 def run_cmd(cmd: str, timeout: int = 900) -> tuple[bool, str]:
     try:
-        r = subprocess.run(cmd, shell=True, cwd=project_root(), capture_output=True, text=True, timeout=timeout,
+        args, use_shell = shell_args(cmd)
+        r = subprocess.run(args, shell=use_shell, cwd=project_root(), capture_output=True, text=True, timeout=timeout,
                            env={**os.environ, "MME_MODE": os.environ.get("MME_MODE", "replay")})
         return r.returncode == 0, (r.stdout + r.stderr)[-800:]
     except subprocess.TimeoutExpired:

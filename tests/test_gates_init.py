@@ -88,6 +88,24 @@ class GatesTest(unittest.TestCase):
         self.assertFalse(checks["deploy URL set in milestones.yaml (ship.deploy_url)"])
 
 
+class ShellTest(unittest.TestCase):
+    """Gate and mission commands are POSIX shell; on Windows `shell=True` would mean cmd.exe."""
+
+    def test_windows_runs_commands_through_bash(self):
+        from mme import shell
+        with mock.patch.object(shell.os, "name", "nt"), mock.patch.object(cli, "find_bash", return_value="C:/Git/bin/bash.exe"):
+            self.assertEqual(shell.shell_args("echo hi"), (["C:/Git/bin/bash.exe", "-c", "echo hi"], False))
+
+    def test_posix_keeps_shell_true(self):
+        from mme import shell
+        with mock.patch.object(shell.os, "name", "posix"):
+            self.assertEqual(shell.shell_args("echo hi"), ("echo hi", True))
+
+    def test_gate_command_with_env_prefix_and_test_runs(self):
+        ok, out = gates.run_cmd('X=1 sh -c \'test "$X" = 1\' && test $(echo a b | wc -w) -ge 2')
+        self.assertTrue(ok, out)
+
+
 class InitTest(unittest.TestCase):
     def setUp(self):
         self.repo = Path(tempfile.mkdtemp())
