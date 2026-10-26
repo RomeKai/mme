@@ -130,6 +130,12 @@ class RenderConfigTest(unittest.TestCase):
         self.assertAlmostEqual(wonder["model_info"]["output_cost_per_token"] * 1e6, 20.0)
         self.assertEqual(a["router_settings"]["fallbacks"], [{"muse-spark-1.3-contributor": ["muse-spark-1.3"]}])
 
+    def test_unsupported_params_dropped_for_every_model(self):
+        # Meta /v1/messages rejects `stop_sequences` (Claude Code's auto-mode classifier sends it).
+        for cfg in (rc.build(self.ENV), rc.build(self.ENV, openai=True)):
+            for m in cfg["model_list"]:
+                self.assertIn("stop_sequences", m["litellm_params"]["additional_drop_params"])
+
     def test_prices_come_from_one_place(self):
         from mme import providers
         cfg = rc.build(self.ENV)

@@ -36,6 +36,9 @@ def build(env: dict[str, str], openai: bool = False, mock: bool = False, provide
                 "api_key": key,
                 # Meta expects a bearer token; LiteLLM's anthropic provider sends x-api-key. Send both.
                 "extra_headers": {"Authorization": f"Bearer {key}"},
+                # Meta rejects these with 400; `drop_params` doesn't strip them on /v1/messages pass-through.
+                # Claude Code's auto-mode classifier sends `stop_sequences` (verified 2026-10-26).
+                "additional_drop_params": ["stop_sequences"],
             },
             "model_info": {
                 "input_cost_per_token": m["input"] / 1e6,
