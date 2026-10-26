@@ -88,6 +88,30 @@ class WatchdogTest(unittest.TestCase):
     def test_key_spend_parses_info(self):
         self.assertEqual(wd.key_spend(lambda m, p, b: {"info": {"spend": 2.5}}, "k"), 2.5)
 
+    def test_key_spend_prefers_live_window_counter(self):
+        # DB spend lags (batched writes); the budget-window counter is the one enforcement reads.
+        info = {"info": {"spend": 0.0, "budget_limits_usage": {"1d": {"current_spend": 0.69}}}}
+        self.assertEqual(wd.key_spend(lambda m, p, b: info, "k"), 0.69)
+
+    def test_key_spend_uses_highest_window_counter(self):
+        info = {"info": {"spend": 0.0, "budget_limits_usage": {"1h": {"current_spend": 0.1},
+                                                               "1d": {"current_spend": 0.4}}}}
+        self.assertEqual(wd.key_spend(lambda m, p, b: info, "k"), 0.4)
+
+    def test_key_spend_never_below_db_spend(self):
+        # After a LiteLLM restart the live counter can read lower than the persisted DB spend.
+        info = {"info": {"spend": 0.9, "budget_limits_usage": {"1d": {"current_spend": 0.0}}}}
+        self.assertEqual(wd.key_spend(lambda m, p, b: info, "k"), 0.9)
+
+    def test_key_spend_ignores_malformed_windows(self):
+        for bad in ([{"current_spend": 1}], {"1d": {"current_spend": "n/a"}}, {"1d": None}):
+            info = {"info": {"spend": 0.3, "budget_limits_usage": bad}}
+            self.assertEqual(wd.key_spend(lambda m, p, b: info, "k"), 0.3)
+
+    def test_key_spend_falls_back_to_db_without_windows(self):
+        info = {"info": {"spend": 1.2, "budget_limits_usage": None}}
+        self.assertEqual(wd.key_spend(lambda m, p, b: info, "k"), 1.2)
+
 
 class RenderConfigTest(unittest.TestCase):
     ENV = {"MODEL_API_KEY": "mk", "LITELLM_MASTER_KEY": "sk-x", "POSTGRES_PASSWORD": "pw"}

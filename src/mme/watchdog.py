@@ -37,8 +37,21 @@ def make_http(base: str, master: str) -> Http:
 
 
 def key_spend(http: Http, key: str) -> float:
+    """Key spend, real-time when possible.
+
+    `spend` comes from the DB, which LiteLLM writes in batches (seen lagging 3 s to 60+ s).
+    Keys minted with `budget_limits` also report `budget_limits_usage`, read from the live counter
+    that budget enforcement uses. Return max(live windows, DB spend): never below the persisted value
+    (the live counter can reset on a LiteLLM restart), so switching sources between polls can't fake a drop."""
     info = http("GET", f"/key/info?key={key}", None)
-    return float((info.get("info") or info).get("spend") or 0.0)
+    info = info.get("info") or info
+    db = float(info.get("spend") or 0.0)
+    try:
+        windows = info.get("budget_limits_usage") or {}
+        live = [float((w or {}).get("current_spend") or 0.0) for w in windows.values()]
+    except (AttributeError, TypeError, ValueError):  # unexpected shape: keep watching on DB spend
+        live = []
+    return max([db, *live])
 
 
 class Watchdog:
