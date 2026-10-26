@@ -43,6 +43,19 @@ def _load_dotenv(env: dict) -> dict:
     return out
 
 
+def find_bash() -> str | None:
+    """bash for the gateway scripts. On Windows, skip the WSL launcher (System32) and fall back to Git Bash."""
+    bash = shutil.which("bash")
+    if os.name != "nt" or (bash and Path(bash).parent.name.lower() not in ("system32", "windowsapps")):
+        return bash
+    git = shutil.which("git")
+    if git:
+        candidate = Path(git).resolve().parents[1] / "bin" / "bash.exe"  # <Git>/cmd/git.exe -> <Git>/bin/bash.exe
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def gateway(argv: list[str]) -> int:
     sub = argv[0] if argv else "up"
     rest = argv[1:]
@@ -50,7 +63,8 @@ def gateway(argv: list[str]) -> int:
     if sub == "render":
         return render.main(rest)
     env = _load_dotenv(os.environ)
-    env.update(MME_PKG=str(PACKAGE_DIR), MME_BIN=f"{sys.executable} -m mme", MME_PYTHON=sys.executable,
+    python = Path(sys.executable).as_posix()  # bash-safe on Windows (no backslashes)
+    env.update(MME_PKG=str(PACKAGE_DIR), MME_BIN=f"{python} -m mme", MME_PYTHON=python,
                MME_GATEWAY_CONFIG=str(render.config_path()), MME_STATE=str(state_dir()), MME_PROJECT=str(project_root()))
     if sub == "down":
         return subprocess.run(["docker", "compose", "--profile", "mock", "down"], cwd=PACKAGE_DIR / "gateway", env=env).returncode
@@ -58,8 +72,12 @@ def gateway(argv: list[str]) -> int:
     if sub not in scripts:
         print(f"usage: mme gateway <{'|'.join([*scripts, 'render', 'down'])}>", file=sys.stderr)
         return 2
+    bash = find_bash()
+    if not bash:
+        print("mme gateway needs bash (on Windows: Git for Windows, https://git-scm.com)", file=sys.stderr)
+        return 127
     os.environ.update({k: v for k, v in env.items() if k not in os.environ})  # so `render` inside sees .env too
-    return subprocess.run(["bash", str(PACKAGE_DIR / "gateway" / scripts[sub]), *rest], env=env).returncode
+    return subprocess.run([bash, str(PACKAGE_DIR / "gateway" / scripts[sub]), *rest], env=env).returncode
 
 
 def doctor() -> int:

@@ -64,11 +64,11 @@ def init(root: Path, force: bool = False, start: dt.date | None = None) -> list[
         dst = root / rel
         existed = dst.exists()
         if existed and not force:
-            report.append((str(rel), "skipped (exists)"))
+            report.append((rel.as_posix(), "skipped (exists)"))
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(_render(src.read_text(), start))
-        report.append((str(rel), "overwritten" if existed else "created"))
+        report.append((rel.as_posix(), "overwritten" if existed else "created"))
     block = (TEMPLATES / "AGENTS.block.md").read_text()
     report.append(("AGENTS.md", merge_block(root / "AGENTS.md", block, "<!-- mme:start", "<!-- mme:end -->")))
     report.append((".gitignore", merge_block(root / ".gitignore", GITIGNORE_BLOCK, "# mme:start", "# mme:end")))

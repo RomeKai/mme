@@ -96,14 +96,29 @@ class HarnessTest(unittest.TestCase):
         self.assertIn("no longer allowed", self.run_cli("policy", "meta-only")[2])
 
     def test_shell_function_end_to_end(self):
+        bash = cli.find_bash()
+        if not bash:
+            self.skipTest("bash not found on PATH")
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ANTHROPIC", "MME_HARNESS"))}
-        env.update(MME_GATEWAY_KEY="gw", MODEL_API_KEY="mk", LITELLM_MASTER_KEY="", MME_PROJECT=str(self.tmp))
-        script = (f'mme() {{ case "$1" in use|fallback) local o; o="$({sys.executable} -m mme "$@")" || return $?; '
-                  f'eval "$o";; *) {sys.executable} -m mme "$@";; esac; }}; '
+        src = str(Path(cli.__file__).resolve().parents[1])
+        env.update(MME_GATEWAY_KEY="gw", MODEL_API_KEY="mk", LITELLM_MASTER_KEY="", MME_PROJECT=str(self.tmp),
+                   PYTHONPATH=os.pathsep.join(filter(None, [src, env.get("PYTHONPATH")])))
+        py = Path(sys.executable).as_posix()
+        script = (f'mme() {{ case "$1" in use|fallback) local o; o="$("{py}" -m mme "$@")" || return $?; '
+                  f'eval "$o";; *) "{py}" -m mme "$@";; esac; }}; '
                   'export LITELLM_MASTER_KEY=sk-admin; mme use gateway >/dev/null 2>&1; '
                   'echo "$ANTHROPIC_BASE_URL|$ANTHROPIC_AUTH_TOKEN|$MME_HARNESS|${LITELLM_MASTER_KEY:-stripped}"')
-        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, cwd=self.tmp)
+        r = subprocess.run([bash, "-c", script], capture_output=True, text=True, env=env, cwd=self.tmp)
         self.assertEqual(r.stdout.strip(), "http://127.0.0.1:4000|gw|gateway|stripped")
+
+    def test_find_bash_skips_wsl_launcher_on_windows(self):
+        git_root = self.tmp / "Git"
+        (git_root / "cmd").mkdir(parents=True)
+        (git_root / "bin").mkdir()
+        (git_root / "bin" / "bash.exe").touch()
+        which = {"bash": "C:/Windows/System32/bash.exe", "git": str(git_root / "cmd" / "git.exe")}
+        with mock.patch.object(cli.os, "name", "nt"), mock.patch.object(cli.shutil, "which", which.get):
+            self.assertEqual(cli.find_bash(), str((git_root / "bin" / "bash.exe").resolve()))
 
     def test_shell_init_prints_function(self):
         self.assertIn("eval \"$out\"", self.run_cli("shell-init")[1])
