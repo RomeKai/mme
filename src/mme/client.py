@@ -46,6 +46,10 @@ class ReplayMiss(RuntimeError):
     pass
 
 
+class EmptyResponse(RuntimeError):
+    """The model returned no content, e.g. max_tokens was spent on reasoning before the answer."""
+
+
 class ApiError(RuntimeError):
     def __init__(self, status: int, body: str):
         super().__init__(f"Meta Model API error {status}: {body[:500]}")
@@ -174,7 +178,16 @@ class MME:
     def chat_json(self, messages: list[dict[str, Any]], *, json_schema: dict[str, Any], **kw: Any) -> Any:
         """Chat call that returns parsed JSON (validate it with pydantic at the call site)."""
         data = self.chat(messages, json_schema=json_schema, **kw)
-        return json.loads(data["choices"][0]["message"]["content"])
+        choice = data["choices"][0]
+        content = choice["message"].get("content")
+        if content is None:
+            usage = data.get("usage") or {}
+            reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", "?")
+            raise EmptyResponse(
+                f"no content (finish_reason={choice.get('finish_reason')}, completion_tokens="
+                f"{usage.get('completion_tokens')}, reasoning_tokens={reasoning}): Spark reasons before answering, "
+                "raise max_tokens")
+        return json.loads(content)
 
     def respond(
         self,

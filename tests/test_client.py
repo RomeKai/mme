@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mme.client import MME, ApiError, BudgetExceeded, ReplayMiss  # noqa: E402
+from mme.client import MME, ApiError, BudgetExceeded, EmptyResponse, ReplayMiss  # noqa: E402
 from mme.providers import text_cost  # noqa: E402
 
 
@@ -104,6 +104,17 @@ class MMETest(unittest.TestCase):
         self.assertEqual(payload["model"], "muse-spark-1.3")
         self.assertEqual(payload["response_format"]["type"], "json_schema")
         self.assertTrue(t.calls[0][0].endswith("/chat/completions"))
+
+    def test_json_truncated_by_reasoning_raises_clear_error(self):
+        # Spark reasons before answering: a small max_tokens can be spent entirely on reasoning.
+        r = fake_response(out=200, content=None)
+        r["choices"][0]["finish_reason"] = "length"
+        r["usage"]["completion_tokens_details"] = {"reasoning_tokens": 198}
+        m, _ = self.make([r])
+        with self.assertRaises(EmptyResponse) as ctx:
+            m.chat_json([{"role": "user", "content": "plan"}], json_schema={"type": "object"}, max_tokens=200)
+        self.assertIn("max_tokens", str(ctx.exception))
+        self.assertIn("198", str(ctx.exception))
 
 
 if __name__ == "__main__":

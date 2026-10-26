@@ -36,7 +36,7 @@ def run(args) -> int:
         model = m.model_for(tier)
         try:
             out = m.chat_json([{"role": "user", "content": "Return a kitchen of 12 square meters as JSON."}],
-                              json_schema=schema, tier=tier, tag="smoke", max_tokens=200)
+                              json_schema=schema, tier=tier, tag="smoke", max_tokens=1024)  # Spark reasons first (~250 tokens)
             print(f"OK   {model:<30} structured output -> {out}")
         except ApiError as e:
             ok = False
