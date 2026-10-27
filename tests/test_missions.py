@@ -300,3 +300,14 @@ class ClaudeBinTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PrepTimeoutTest(unittest.TestCase):
+    def test_default_is_generous_for_slow_reasoning_models(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MME_PREP_TIMEOUT_S", None)
+            self.assertEqual(ms.prep_timeout_s(), 1800)
+
+    def test_env_override(self):
+        with mock.patch.dict(os.environ, {"MME_PREP_TIMEOUT_S": "2400"}):
+            self.assertEqual(ms.prep_timeout_s(), 2400)

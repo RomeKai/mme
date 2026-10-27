@@ -266,6 +266,11 @@ def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
     return env
 
 
+def prep_timeout_s() -> int:
+    """Briefing wall-clock limit. Slow reasoning models (Spark contributor) need well over 10 minutes."""
+    return int(os.environ.get("MME_PREP_TIMEOUT_S", "1800"))
+
+
 def claude_bin() -> str:
     """Claude Code executable. On Windows an npm install is a `claude.cmd` shim: CreateProcess can't find a bare
     `claude`, and running the shim through cmd.exe would mangle multi-line prompts, so use the bundled claude.exe."""
@@ -404,7 +409,7 @@ def prep(missions: list[Mission], ask: Callable[[str], str] = input, yes: bool =
         sp = spend or ((gateway_spend_fn("MME_GATEWAY_KEY")) if os.environ.get("LITELLM_MASTER_KEY")
                        and os.environ.get("MME_GATEWAY_KEY") else (lambda: 0.0))
         outcome, out, used = run_agent(agent_cmd(m, prompt, 10, readonly=True), project_root(), env, sp,
-                                       max_usd=0.25, timeout_s=600, poll_s=float(os.environ.get("MME_NIGHT_POLL_S", "5")))
+                                       max_usd=0.25, timeout_s=prep_timeout_s(), poll_s=float(os.environ.get("MME_NIGHT_POLL_S", "5")))
         try:
             reply = parse_json_reply(out)
         except (ValueError, json.JSONDecodeError):
