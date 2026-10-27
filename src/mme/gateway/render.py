@@ -46,6 +46,8 @@ def build(env: dict[str, str], openai: bool = False, mock: bool = False, provide
                 "output_cost_per_token": m["output"] / 1e6,
             },
         })
+    if env.get("BASETEN_API_KEY"):
+        model_list.append(baseten_glm(env))
     return {
         "model_list": model_list,
         "router_settings": {
@@ -66,6 +68,26 @@ def build(env: dict[str, str], openai: bool = False, mock: bool = False, provide
             "master_key": env["LITELLM_MASTER_KEY"],
             "database_url": env.get("DATABASE_URL")
             or f"postgresql://litellm:{env.get('POSTGRES_PASSWORD', '')}@db:5432/litellm",
+        },
+    }
+
+
+def baseten_glm(env: dict[str, str]) -> dict:
+    """Optional GLM on Baseten (OpenAI-compatible), for dev tooling only: never product code, never a fallback.
+
+    Slug and prices are env-driven because they were not verified when this was written; check `/v1/models`.
+    """
+    return {
+        "model_name": "glm",
+        "litellm_params": {
+            "model": f"openai/{env.get('BASETEN_GLM_MODEL', 'zai-org/GLM-5.3')}",
+            "api_base": "https://inference.baseten.co/v1",
+            "api_key": env["BASETEN_API_KEY"],
+            "additional_drop_params": ["stop_sequences"],
+        },
+        "model_info": {
+            "input_cost_per_token": float(env.get("BASETEN_GLM_INPUT_USD", "1")) / 1e6,
+            "output_cost_per_token": float(env.get("BASETEN_GLM_OUTPUT_USD", "4")) / 1e6,
         },
     }
 

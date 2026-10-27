@@ -143,6 +143,21 @@ class RenderConfigTest(unittest.TestCase):
             p = providers.load()["text_models"][m["model_name"]]
             self.assertAlmostEqual(m["model_info"]["input_cost_per_token"] * 1e6, p["input"])
 
+    def test_baseten_glm_absent_without_key(self):
+        self.assertNotIn("glm", [m["model_name"] for m in rc.build(self.ENV)["model_list"]])
+
+    def test_baseten_glm_added_with_key(self):
+        cfg = rc.build({**self.ENV, "BASETEN_API_KEY": "bk", "BASETEN_GLM_MODEL": "zai-org/GLM-X",
+                        "BASETEN_GLM_INPUT_USD": "2", "BASETEN_GLM_OUTPUT_USD": "8"})
+        glm = next(m for m in cfg["model_list"] if m["model_name"] == "glm")
+        p = glm["litellm_params"]
+        self.assertEqual(p["model"], "openai/zai-org/GLM-X")
+        self.assertEqual(p["api_base"], "https://inference.baseten.co/v1")
+        self.assertEqual(p["api_key"], "bk")
+        self.assertAlmostEqual(glm["model_info"]["output_cost_per_token"] * 1e6, 8.0)
+        # never a fallback target: no cross-provider replay mid-session
+        self.assertNotIn("glm", str(cfg["router_settings"]["fallbacks"]))
+
     def test_mock_upstream(self):
         c = rc.build({"LITELLM_MASTER_KEY": "sk-x", "POSTGRES_PASSWORD": "pw"}, mock=True)
         p = c["model_list"][0]["litellm_params"]
