@@ -126,3 +126,10 @@ class HarnessTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CompactWindowTest(unittest.TestCase):
+    def test_spark_sessions_compact_at_500k(self):
+        # Spark has a 1M context; 200k compacted after a few turns once ~58k of fixed context loaded.
+        from mme import harness
+        self.assertEqual(harness.claude_code_env("http://x", "K")["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "500000")

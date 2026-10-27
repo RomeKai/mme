@@ -46,7 +46,7 @@ def claude_code_env(base_url: str, token_var: str, model: str | None = None) -> 
         "ANTHROPIC_SMALL_FAST_MODEL": m,
         "CLAUDE_CODE_SUBAGENT_MODEL": m,
         "ENABLE_TOOL_SEARCH": "true",
-        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000",
     }
 
 
