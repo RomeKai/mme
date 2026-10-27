@@ -327,18 +327,26 @@ def gateway_spend_fn(key_var: str) -> SpendFn:
 
 
 def parse_json_reply(text: str) -> dict:
-    try:
-        obj = json.loads(text)
-        if isinstance(obj, dict) and "questions" in obj:
+    """The briefing object, from raw agent output. stderr is merged into stdout, so warnings may precede the
+    `claude -p` JSON envelope: scan for decodable objects and unwrap the envelope's `result` text."""
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if "questions" in obj:
             return obj
-        if isinstance(obj, dict) and isinstance(obj.get("result"), str):
-            text = obj["result"]
-    except json.JSONDecodeError:
-        pass
-    a, b = text.find("{"), text.rfind("}")
-    if a == -1 or b <= a:
-        raise ValueError("agent reply has no JSON object")
-    return json.loads(text[a:b + 1])
+        if isinstance(obj.get("result"), str):
+            try:
+                return parse_json_reply(obj["result"])
+            except ValueError:
+                pass
+    raise ValueError("agent reply has no JSON object with questions")
 
 
 # ---------------------------------------------------------------- prep (briefing)

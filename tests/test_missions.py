@@ -266,6 +266,15 @@ class MissionsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ms.parse_json_reply("no json here")
 
+    def test_parse_json_reply_skips_noise_before_the_envelope(self):
+        inner = 'Sure. {"questions": [{"question": "q", "default": "d"}], "risks": ["see {braces}"]}'
+        out = "warning: hook {x} failed\n" + json.dumps({"type": "result", "result": inner})
+        self.assertEqual(ms.parse_json_reply(out)["questions"][0]["question"], "q")
+
+    def test_parse_json_reply_never_reads_the_envelope_as_no_questions(self):
+        with self.assertRaises(ValueError):
+            ms.parse_json_reply("note\n" + json.dumps({"type": "result", "result": "I have no JSON for you"}))
+
 
 class ClaudeBinTest(unittest.TestCase):
     def test_explicit_override_wins(self):
