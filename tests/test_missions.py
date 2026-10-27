@@ -146,7 +146,7 @@ class MissionsTest(unittest.TestCase):
         log = subprocess.run(["git", "log", "--oneline", f"main..{r['branch']}"], cwd=self.repo,
                              capture_output=True, text=True).stdout
         self.assertIn("night(m1:", log)
-        report = (self.repo / "NIGHT_REPORT.md").read_text()
+        report = (self.repo / "NIGHT_REPORT.md").read_text(encoding="utf-8")
         self.assertIn("**PASS**", report)
         self.assertIn("recommend: merge", report)
         self.assertIn("night", (self.repo / "docs/AI_USAGE.md").read_text())
@@ -179,7 +179,7 @@ class MissionsTest(unittest.TestCase):
         self.prep_yes()
         ms.run(self.args(), spend=lambda: 0.0)
         self.assertEqual(self.results()["m1"]["result"], "BLOCKED")
-        self.assertIn("need a decision on units", (self.repo / "NIGHT_REPORT.md").read_text())
+        self.assertIn("need a decision on units", (self.repo / "NIGHT_REPORT.md").read_text(encoding="utf-8"))
 
     def test_review_stage_is_read_only(self):
         os.environ["FAKE_MODE"] = "naughty_review"
@@ -197,7 +197,7 @@ class MissionsTest(unittest.TestCase):
         self.prep_yes()
         ms.run(self.args(), spend=lambda: 0.0)
         self.assertEqual(self.results()["m1"]["out_of_scope"], ["other.txt"])
-        self.assertIn("Out of scope", (self.repo / "NIGHT_REPORT.md").read_text())
+        self.assertIn("Out of scope", (self.repo / "NIGHT_REPORT.md").read_text(encoding="utf-8"))
 
     def test_stage_killed_when_over_its_budget(self):
         os.environ["FAKE_MODE"] = "slow"
@@ -217,7 +217,7 @@ class MissionsTest(unittest.TestCase):
         self.prep_yes()
         ms.run(self.args(), spend=lambda: 0.0)
         self.assertEqual(sorted(self.results()), ["a", "b", "c"])
-        self.assertIn("per-night cap", (self.repo / "NIGHT_REPORT.md").read_text())
+        self.assertIn("per-night cap", (self.repo / "NIGHT_REPORT.md").read_text(encoding="utf-8"))
 
     def test_passed_mission_not_rerun_unless_edited(self):
         self.prep_yes()
@@ -265,6 +265,28 @@ class MissionsTest(unittest.TestCase):
         self.assertEqual(ms.parse_json_reply(json.dumps({"result": 'ok {"questions": [1]} bye'}))["questions"], [1])
         with self.assertRaises(ValueError):
             ms.parse_json_reply("no json here")
+
+
+class ClaudeBinTest(unittest.TestCase):
+    def test_explicit_override_wins(self):
+        with mock.patch.dict(os.environ, {"MME_CLAUDE_BIN": "/opt/claude"}):
+            self.assertEqual(ms.claude_bin(), "/opt/claude")
+
+    def test_npm_cmd_shim_resolves_to_bundled_exe(self):
+        with tempfile.TemporaryDirectory() as d:
+            shim = Path(d) / "claude.cmd"
+            shim.write_text("@echo off")
+            exe = Path(d) / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+            exe.parent.mkdir(parents=True)
+            exe.write_text("")
+            env = {k: v for k, v in os.environ.items() if k != "MME_CLAUDE_BIN"}
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(ms.shutil, "which", return_value=str(shim)):
+                self.assertEqual(ms.claude_bin(), str(exe))
+
+    def test_agent_cmd_uses_resolved_binary(self):
+        m = ms.Mission(id="x", goal="g", verify="true", harness="gateway")
+        with mock.patch.object(ms, "claude_bin", return_value="/bin/claude-real"):
+            self.assertEqual(ms.agent_cmd(m, "p", 3, readonly=True)[0], "/bin/claude-real")
 
 
 if __name__ == "__main__":

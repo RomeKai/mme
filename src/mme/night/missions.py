@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -191,7 +192,7 @@ def night_state_dir() -> Path:
 
 def load_missions(path: Path | None = None, review_max: float | None = None) -> list[Mission]:
     import yaml
-    doc = yaml.safe_load((path or missions_file()).read_text()) or {}
+    doc = yaml.safe_load((path or missions_file()).read_text(encoding="utf-8")) or {}
     defaults = doc.get("defaults", {})
     if review_max is None:
         try:
@@ -226,7 +227,7 @@ def load_brief(m: Mission) -> dict | None:
     p = brief_path(m.id)
     if not p.exists():
         return None
-    b = json.loads(p.read_text())
+    b = json.loads(p.read_text(encoding="utf-8"))
     return b if b.get("hash") == m.spec_hash else None
 
 
@@ -247,7 +248,8 @@ def decisions_text(m: Mission) -> str:
 # ---------------------------------------------------------------- agent plumbing
 def sh(cmd, cwd: Path, timeout: float = 600) -> subprocess.CompletedProcess:
     args, use_shell = shell_args(cmd) if isinstance(cmd, str) else (cmd, False)
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, shell=use_shell)
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=timeout, shell=use_shell)
 
 
 def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
@@ -264,12 +266,26 @@ def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
     return env
 
 
+def claude_bin() -> str:
+    """Claude Code executable. On Windows an npm install is a `claude.cmd` shim: CreateProcess can't find a bare
+    `claude`, and running the shim through cmd.exe would mangle multi-line prompts, so use the bundled claude.exe."""
+    explicit = os.environ.get("MME_CLAUDE_BIN")
+    if explicit:
+        return explicit
+    found = shutil.which("claude")
+    if found and found.lower().endswith(".cmd"):
+        exe = Path(found).parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+        if exe.exists():
+            return str(exe)
+    return found or "claude"
+
+
 def agent_cmd(m: Mission, prompt: str, turns: int, readonly: bool) -> list[str]:
     override = os.environ.get("MME_NIGHT_AGENT_CMD")  # tests / custom harness: prompt is the last argument
     if override:
         return [*override.split(), prompt]
     if m.harness in ("gateway", "claude"):
-        cmd = ["claude", "-p", prompt, "--max-turns", str(turns), "--output-format", "json"]
+        cmd = [claude_bin(), "-p", prompt, "--max-turns", str(turns), "--output-format", "json"]
         cmd += ["--allowedTools", "Read,Grep,Glob"] if readonly else ["--permission-mode", "acceptEdits"]
         return cmd
     if m.harness == "muse-code":
@@ -284,7 +300,8 @@ def run_agent(cmd: list[str], cwd: Path, env: dict, spend: SpendFn, max_usd: flo
               poll_s: float) -> tuple[str, str, float]:
     """Returns (outcome, output_tail, usd_used). outcome: ok | error | OVER_BUDGET | TIMEOUT."""
     s0, t0 = spend(), time.time()
-    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace")
     outcome = None
     while proc.poll() is None:
         time.sleep(poll_s)
@@ -452,7 +469,7 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
     if r.returncode:
         return {"result": "SETUP_FAILED", "detail": r.stderr[-500:], "branch": branch, "spend": 0.0, "stages": []}
     (wt / ".mission").mkdir(exist_ok=True)
-    (wt / ".mission" / "PROGRESS.md").write_text(f"# Mission {m.id}\n\n## Goal\n{m.goal}\n\n## Log\n")
+    (wt / ".mission" / "PROGRESS.md").write_text(f"# Mission {m.id}\n\n## Goal\n{m.goal}\n\n## Log\n", encoding="utf-8")
 
     started, total, stages_out, result = time.time(), 0.0, [], "PASS"
     for n, st in enumerate(m.stages, 1):
@@ -504,7 +521,7 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
         result = "FAIL"
     changed = sh(["git", "diff", "--name-only", f"{m.base}...{branch}"], root).stdout.split()
     out_of_scope = [f for f in changed if not in_scope(f, m.scope)]
-    read = lambda p: (wt / ".mission" / p).read_text()[:3000] if (wt / ".mission" / p).exists() else ""  # noqa: E731
+    read = lambda p: (wt / ".mission" / p).read_text(encoding="utf-8")[:3000] if (wt / ".mission" / p).exists() else ""  # noqa: E731
     return {"result": result, "branch": branch, "worktree": str(wt), "spend": round(total, 4),
             "minutes": round((time.time() - started) / 60, 1), "stages": stages_out,
             "diffstat": sh(["git", "diff", "--shortstat", f"{m.base}...{branch}"], root).stdout.strip() or "no changes",
@@ -541,18 +558,18 @@ def write_report(date: str, results: list[tuple[Mission, dict]], skipped: list[t
             L += ["", "### Review (cheap pass: treat as a checklist, not a verdict)", "", r["review"]]
         L += ["", "<details><summary>final check output</summary>", "", "```", r.get("final_check", "").strip(), "```",
               "</details>", ""]
-    report_path().write_text("\n".join(L))
+    report_path().write_text("\n".join(L), encoding="utf-8")
 
 
 def read_state() -> dict:
     f = night_state_dir() / "state.json"
-    return json.loads(f.read_text()) if f.exists() else {"results": {}}
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"results": {}}
 
 
 def write_state(s: dict) -> None:
     f = night_state_dir() / "state.json"
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(s, indent=2))
+    f.write_text(json.dumps(s, indent=2), encoding="utf-8")
 
 
 def run(args, spend: SpendFn | None = None, now: Callable[[], dt.datetime] = dt.datetime.now) -> int:
