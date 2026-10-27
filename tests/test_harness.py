@@ -133,3 +133,10 @@ class CompactWindowTest(unittest.TestCase):
         # Spark has a 1M context; 200k compacted after a few turns once ~58k of fixed context loaded.
         from mme import harness
         self.assertEqual(harness.claude_code_env("http://x", "K")["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "500000")
+
+    def test_spark_real_window_declared(self):
+        # Claude Code uses min(model window, compact window) and assumes 200k for unknown models.
+        from mme import harness
+        env = harness.claude_code_env("http://x", "K")
+        self.assertEqual(env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1048576")
+        self.assertIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", harness.CLAUDE_VARS)
