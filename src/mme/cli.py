@@ -14,7 +14,7 @@ Gateway & tests
   mme gateway up [--openai] | check | drill | backup | render [--openai|--mock] | down
   mme smoke [--image] | mock [--port N] | models
 Hooks (called by .claude/settings.json)
-  mme hook session-start | loop-breaker
+  mme hook session-start | loop-breaker | announce-guard
 """
 from __future__ import annotations
 
@@ -201,7 +201,10 @@ def main(argv: list[str] | None = None) -> int:
         if rest[:1] == ["loop-breaker"]:
             from mme.hooks import loop_breaker
             return loop_breaker.main()
-        print("usage: mme hook <session-start|loop-breaker>", file=sys.stderr)
+        if rest[:1] == ["announce-guard"]:
+            from mme.hooks import announce_guard
+            return announce_guard.main()
+        print("usage: mme hook <session-start|loop-breaker|announce-guard>", file=sys.stderr)
         return 2
     print(f"unknown command '{cmd}'\n{__doc__}", file=sys.stderr)
     return 2
