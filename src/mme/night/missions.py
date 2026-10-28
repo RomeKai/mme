@@ -157,6 +157,7 @@ class Mission:
     base: str = "main"
     timeout_min: float = 120
     brief: bool = True
+    link: list[str] = field(default_factory=list)   # untracked dependency dirs (e.g. web/node_modules) shared into the worktree
     stages_spec: list[dict] = field(default_factory=list)
     stages: list[Stage] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
@@ -216,7 +217,7 @@ def load_missions(path: Path | None = None, review_max: float | None = None) -> 
                     scope=list(d.get("scope", [])), status=d.get("status", "draft"), harness=d.get("harness", "gateway"),
                     model=d.get("model") or providers.harness_model("cheap"), base=d.get("base", "main"),
                     timeout_min=float(d.get("timeout_min", 120)), brief=bool(d.get("brief", True)),
-                    stages_spec=list(d.get("stages", [])), raw=raw)
+                    link=list(d.get("link", [])), stages_spec=list(d.get("stages", [])), raw=raw)
         m.stages = expand_stages(m, review_max)
         out.append(m)
     return out
@@ -482,14 +483,63 @@ def commit_all(wt: Path, msg: str) -> None:
         sh(["git", "commit", "-qm", msg], wt)
 
 
+def link_shared(root: Path, wt: Path, paths: list[str]) -> None:
+    """Share untracked dependency dirs (node_modules) with the worktree: a fresh worktree has none, so frontend checks
+    would fail. Junction on Windows (no admin rights needed), symlink elsewhere. Missing sources are skipped."""
+    for rel in paths:
+        src, dst = root / rel, wt / rel
+        if not src.is_dir() or dst.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(src), str(dst))
+        else:
+            dst.symlink_to(src, target_is_directory=True)
+
+
+def unlink_shared(wt: Path, paths: list[str]) -> None:
+    """Remove only the links, never the shared target: run before deleting a worktree so nothing recurses into it."""
+    for rel in paths:
+        dst = wt / rel
+        if os.path.islink(dst):
+            os.unlink(dst)
+        elif _is_junction(dst):
+            os.rmdir(dst)   # removes the junction itself, not the directory it points to
+
+
+def _is_junction(p: Path) -> bool:
+    try:
+        return getattr(os.lstat(p), "st_reparse_tag", 0) == 0xA0000003   # IO_REPARSE_TAG_MOUNT_POINT
+    except OSError:
+        return False
+
+
+def exclude_links(root: Path, paths: list[str]) -> None:
+    """A link is not a directory to git, so `dir/` ignore rules miss it: exclude the bare path for every worktree."""
+    common = sh(["git", "rev-parse", "--git-common-dir"], root).stdout.strip()
+    if not common or not paths:
+        return
+    exclude = (root / common if not Path(common).is_absolute() else Path(common)) / "info" / "exclude"
+    current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    missing = [p for p in paths if p not in current.splitlines()]
+    if missing:
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(current + ("" if current.endswith("\n") or not current else "\n") + "\n".join(missing) + "\n",
+                           encoding="utf-8")
+
+
 def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: float) -> dict:
     root = project_root()
     branch, wt = f"night/{date}-{m.id}", night_dir / f"{date}-{m.id}"
     if wt.exists():
+        unlink_shared(wt, m.link)
         sh(["git", "worktree", "remove", "--force", str(wt)], root)
     r = sh(["git", "worktree", "add", "-B", branch, str(wt), m.base], root)
     if r.returncode:
         return {"result": "SETUP_FAILED", "detail": r.stderr[-500:], "branch": branch, "spend": 0.0, "stages": []}
+    exclude_links(root, m.link)
+    link_shared(root, wt, m.link)
     (wt / ".mission").mkdir(exist_ok=True)
     (wt / ".mission" / "PROGRESS.md").write_text(f"# Mission {m.id}\n\n## Goal\n{m.goal}\n\n## Log\n", encoding="utf-8")
 
@@ -543,6 +593,7 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
         result = "FAIL"
     changed = sh(["git", "diff", "--name-only", f"{m.base}...{branch}"], root).stdout.split()
     out_of_scope = [f for f in changed if not in_scope(f, m.scope)]
+    unlink_shared(wt, m.link)   # the report tells the human to `git worktree remove`; never let that reach the target
     read = lambda p: (wt / ".mission" / p).read_text(encoding="utf-8")[:3000] if (wt / ".mission" / p).exists() else ""  # noqa: E731
     return {"result": result, "branch": branch, "worktree": str(wt), "spend": round(total, 4),
             "minutes": round((time.time() - started) / 60, 1), "stages": stages_out,

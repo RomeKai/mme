@@ -320,3 +320,25 @@ class RunAgentOutputTest(unittest.TestCase):
         outcome, out, _ = ms.run_agent(cmd, Path("."), None, lambda: 0.0, max_usd=1, timeout_s=20, poll_s=0.2)
         self.assertEqual(outcome, "ok")
         self.assertTrue(out.endswith("x\n"))
+
+
+class LinkSharedTest(unittest.TestCase):
+    def test_links_dependency_dir_into_worktree_and_unlinks_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, wt = Path(tmp) / "repo", Path(tmp) / "wt"
+            (root / "web" / "node_modules" / "pkg").mkdir(parents=True)
+            (root / "web" / "node_modules" / "pkg" / "index.js").write_text("x", encoding="utf-8")
+            (wt / "web").mkdir(parents=True)
+            ms.link_shared(root, wt, ["web/node_modules", "missing/dir"])
+            self.assertTrue((wt / "web" / "node_modules" / "pkg" / "index.js").exists())
+            self.assertFalse((wt / "missing").exists())
+            ms.unlink_shared(wt, ["web/node_modules", "missing/dir"])
+            self.assertFalse((wt / "web" / "node_modules").exists())
+            self.assertTrue((root / "web" / "node_modules" / "pkg" / "index.js").exists())
+
+    def test_link_field_is_loaded_from_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "m.yaml"
+            p.write_text("defaults:\n  link: [web/node_modules]\nmissions:\n  - id: a\n    goal: g\n    verify: v\n",
+                         encoding="utf-8")
+            self.assertEqual(ms.load_missions(p)[0].link, ["web/node_modules"])
