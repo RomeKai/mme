@@ -36,9 +36,9 @@ def build(env: dict[str, str], openai: bool = False, mock: bool = False, provide
                 "api_key": key,
                 # Meta expects a bearer token; LiteLLM's anthropic provider sends x-api-key. Send both.
                 "extra_headers": {"Authorization": f"Bearer {key}"},
-                # Meta rejects these with 400; `drop_params` doesn't strip them on /v1/messages pass-through.
+                # Meta rejects these with 400 (`safeguards`: newer Claude Code clients); `drop_params` doesn't strip them on /v1/messages pass-through.
                 # Claude Code's auto-mode classifier sends `stop_sequences` (verified 2026-10-26).
-                "additional_drop_params": ["stop_sequences"],
+                "additional_drop_params": ["stop_sequences", "safeguards"],
             },
             "model_info": {
                 "input_cost_per_token": m["input"] / 1e6,
@@ -83,7 +83,7 @@ def baseten_glm(env: dict[str, str]) -> dict:
             "model": f"openai/{env.get('BASETEN_GLM_MODEL', 'zai-org/GLM-5.3')}",
             "api_base": "https://inference.baseten.co/v1",
             "api_key": env["BASETEN_API_KEY"],
-            "additional_drop_params": ["stop_sequences"],
+            "additional_drop_params": ["stop_sequences", "safeguards"],
         },
         "model_info": {
             "input_cost_per_token": float(env.get("BASETEN_GLM_INPUT_USD", "1")) / 1e6,

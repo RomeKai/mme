@@ -135,6 +135,7 @@ class RenderConfigTest(unittest.TestCase):
         for cfg in (rc.build(self.ENV), rc.build(self.ENV, openai=True)):
             for m in cfg["model_list"]:
                 self.assertIn("stop_sequences", m["litellm_params"]["additional_drop_params"])
+                self.assertIn("safeguards", m["litellm_params"]["additional_drop_params"])
 
     def test_prices_come_from_one_place(self):
         from mme import providers
