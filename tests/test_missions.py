@@ -311,3 +311,12 @@ class PrepTimeoutTest(unittest.TestCase):
     def test_env_override(self):
         with mock.patch.dict(os.environ, {"MME_PREP_TIMEOUT_S": "2400"}):
             self.assertEqual(ms.prep_timeout_s(), 2400)
+
+
+class RunAgentOutputTest(unittest.TestCase):
+    def test_large_output_does_not_deadlock_the_pipe(self):
+        # A Claude Code JSON reply easily exceeds the OS pipe buffer; reading only after exit blocks the child forever.
+        cmd = [sys.executable, "-c", "print('x' * 200000)"]
+        outcome, out, _ = ms.run_agent(cmd, Path("."), None, lambda: 0.0, max_usd=1, timeout_s=20, poll_s=0.2)
+        self.assertEqual(outcome, "ok")
+        self.assertTrue(out.endswith("x\n"))

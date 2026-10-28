@@ -30,6 +30,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import sys
 import time
 import urllib.request
@@ -307,6 +308,10 @@ def run_agent(cmd: list[str], cwd: Path, env: dict, spend: SpendFn, max_usd: flo
     s0, t0 = spend(), time.time()
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             encoding="utf-8", errors="replace")
+    # Drain stdout while the agent runs: a reply bigger than the OS pipe buffer would block the child forever.
+    chunks: list[str] = []
+    reader = threading.Thread(target=lambda: chunks.extend(iter(proc.stdout.readline, "")), daemon=True)
+    reader.start()
     outcome = None
     while proc.poll() is None:
         time.sleep(poll_s)
@@ -321,7 +326,8 @@ def run_agent(cmd: list[str], cwd: Path, env: dict, spend: SpendFn, max_usd: flo
             except subprocess.TimeoutExpired:
                 proc.kill()
             break
-    out = proc.stdout.read() if proc.stdout else ""
+    reader.join(10)
+    out = "".join(chunks)
     return (outcome or ("ok" if proc.returncode == 0 else "error")), out[-6000:], round(spend() - s0, 4)
 
 
