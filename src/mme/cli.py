@@ -135,7 +135,17 @@ def doctor() -> int:
     return 0 if ok else 1
 
 
+def utf8_console() -> None:
+    """Output is emoji-heavy; a Windows console defaults to cp1252 and crashes on ✅ (no PYTHONIOENCODING needed)."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    utf8_console()
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd, rest = (argv[0], argv[1:]) if argv else ("help", [])
     if cmd in ("help", "-h", "--help"):
