@@ -60,8 +60,46 @@ def _default_home() -> Path:
     return state_dir()
 
 
+ASR_MODEL = "muse-voice-transcribe-1.0"
+ASR_RATES = (16000, 24000)   # the endpoint takes RIFF/WAVE, mono, 16-bit PCM at 16 or 24 kHz
+
+
+def encode_multipart(parts: dict[str, Any]) -> tuple[bytes, str]:
+    """multipart/form-data body for /asr/transcribe: `request` as a JSON part, `audio` as a WAV file part."""
+    boundary = "mme" + hashlib.sha256(os.urandom(16)).hexdigest()[:24]
+    out = b""
+    for name, value in parts.items():
+        out += f"--{boundary}\r\n".encode()
+        if isinstance(value, bytes):
+            out += (f'Content-Disposition: form-data; name="{name}"; filename="{name}.wav"\r\n'
+                    "Content-Type: audio/wav\r\n\r\n").encode() + value + b"\r\n"
+        else:
+            out += (f'Content-Disposition: form-data; name="{name}"\r\n'
+                    f"Content-Type: application/json\r\n\r\n{json.dumps(value)}\r\n").encode()
+    return out + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
+
+
+def wav_seconds(audio: bytes) -> float:
+    """Duration of a WAV the endpoint accepts; ValueError for anything else, before any paid call."""
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(audio)) as w:
+            channels, width, rate, frames = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+    except (wave.Error, EOFError) as e:
+        raise ValueError(f"not a WAV file: {e}") from None
+    if channels != 1 or width != 2 or rate not in ASR_RATES:
+        raise ValueError(f"need mono 16-bit PCM at 16/24 kHz, got {channels} ch, {8 * width}-bit, {rate} Hz")
+    return frames / rate
+
+
 def _urllib_transport(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
+    if "__multipart__" in payload:
+        body, ctype = encode_multipart(payload["__multipart__"])
+        headers = {**headers, "Content-Type": ctype, "Accept": "application/json"}
+    else:
+        body = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=300) as resp:
             return json.loads(resp.read())
@@ -117,7 +155,9 @@ class MME:
         return self.home / "cache" / key[:2] / f"{key}.json"
 
     # ---------- core ----------
-    def _post(self, endpoint: str, payload: dict[str, Any], *, use_cache: bool) -> tuple[dict[str, Any], bool]:
+    def _post(self, endpoint: str, payload: dict[str, Any], *, use_cache: bool,
+              wire: dict[str, Any] | None = None) -> tuple[dict[str, Any], bool]:
+        """`payload` keys the cache; `wire` (default: payload) is what the transport sends, e.g. raw audio bytes."""
         cache_file = self._cache_file(endpoint, payload)
         if use_cache and self.mode != "off" and cache_file.exists():
             return json.loads(cache_file.read_text()), True
@@ -131,7 +171,7 @@ class MME:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         for attempt in range(self.max_retries + 1):
             try:
-                data = self.transport(url, payload, headers)
+                data = self.transport(url, payload if wire is None else wire, headers)
                 break
             except ApiError as e:
                 if e.status not in (408, 409, 429, 500, 502, 503, 504) or attempt == self.max_retries:
@@ -243,8 +283,33 @@ class MME:
                               "arguments": json.loads(args) if isinstance(args, str) else args})
         return calls
 
+    def transcribe(self, audio: bytes, *, tag: str = "asr", language_bias: list[str] | None = None,
+                   keywords: list[str] | None = None, mode: str = "PUSH_TO_TALK", use_cache: bool = True) -> dict[str, Any]:
+        """Muse Voice Transcribe (`POST /v1/asr/transcribe`, multipart). `audio`: WAV mono 16-bit at 16/24 kHz.
+        `language_bias` e.g. ["Spanish"] steers recognition; `keywords` bias rare terms. $0.00005 per second."""
+        seconds = wav_seconds(audio)
+        request: dict[str, Any] = {"model": ASR_MODEL, "audioEncoding": "WAV", "mode": mode}
+        if language_bias:
+            request["languageBias"] = language_bias
+        if keywords:
+            request["keywords"] = keywords
+        key = {"request": request, "audio_sha256": hashlib.sha256(audio).hexdigest()}
+        data, hit = self._post("asr/transcribe", key, use_cache=use_cache,
+                               wire={"__multipart__": {"request": request, "audio": audio}})
+        if not hit:
+            self.record(model=ASR_MODEL, cost_usd=providers.unit_cost(ASR_MODEL, seconds), tag=tag, seconds=round(seconds, 2))
+        return data
+
+    @staticmethod
+    def transcript_text(response: dict[str, Any]) -> str:
+        """Final text of a transcribe response: the top-level transcript, else the turns joined."""
+        if isinstance(response.get("transcript"), str):
+            return response["transcript"]
+        turns = response.get("turns") or response.get("results") or []
+        return " ".join(t.get("transcript", "") for t in turns if t.get("transcript")).strip()
+
     def record_unit(self, model: str, units: float, *, tag: str, kind: str = "usd") -> None:
-        """Ledger entry for unit-priced models the client doesn't call itself yet (SAM 3.1, Voice Transcribe)."""
+        """Ledger entry for unit-priced models the client doesn't call itself (SAM 3.1)."""
         self.record(model=model, cost_usd=providers.unit_cost(model, units, kind), tag=tag, units=units)
 
     def image_generate(self, prompt: str, *, tag: str = "render", n: int = 1, use_cache: bool = True, **params: Any) -> list[bytes]:

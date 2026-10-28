@@ -119,3 +119,64 @@ class MMETest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def make_wav(seconds=2.0, rate=24000, channels=1, width=2):
+    import io
+    import wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        w.writeframes(b"\x00" * int(seconds * rate) * channels * width)
+    return buf.getvalue()
+
+
+class TranscribeTest(MMETest):
+    def test_sends_multipart_request_and_records_cost_per_second(self):
+        m, t = self.make([{"transcript": "Add a bedroom next to the kitchen."}])
+        wav = make_wav(seconds=4.0)
+        out = m.transcribe(wav, tag="asr-smoke", language_bias=["English"], keywords=["Maqet"])
+        self.assertEqual(m.transcript_text(out), "Add a bedroom next to the kitchen.")
+        url, payload, headers = t.calls[0]
+        self.assertTrue(url.endswith("/asr/transcribe"))
+        parts = payload["__multipart__"]
+        self.assertEqual(parts["audio"], wav)
+        self.assertEqual(parts["request"], {"model": "muse-voice-transcribe-1.0", "audioEncoding": "WAV",
+                                            "mode": "PUSH_TO_TALK", "languageBias": ["English"], "keywords": ["Maqet"]})
+        row = json.loads(m.ledger_path.read_text().splitlines()[-1])
+        self.assertEqual(row["tag"], "asr-smoke")
+        self.assertAlmostEqual(row["cost_usd"], 4.0 * 0.00005, places=6)
+
+    def test_cache_then_replay_without_network(self):
+        m, t = self.make([{"transcript": "hola"}])
+        wav = make_wav()
+        m.transcribe(wav, tag="asr")
+        replay = MME(api_key=None, home=m.home, transport=t, mode="replay")
+        self.assertEqual(replay.transcript_text(replay.transcribe(wav, tag="asr")), "hola")
+        self.assertEqual(len(t.calls), 1)
+        with self.assertRaises(ReplayMiss):
+            replay.transcribe(make_wav(seconds=3.0), tag="asr")
+
+    def test_rejects_unsupported_audio_before_any_call(self):
+        m, t = self.make([])
+        for bad in (b"not a wav", make_wav(rate=44100), make_wav(channels=2), make_wav(width=1)):
+            with self.assertRaises(ValueError):
+                m.transcribe(bad, tag="asr")
+        self.assertEqual(t.calls, [])
+
+    def test_transcript_text_joins_turns(self):
+        self.assertEqual(MME.transcript_text({"turns": [{"transcript": "Hello."}, {"transcript": "Bye."}]}),
+                         "Hello. Bye.")
+
+    def test_multipart_encoder_builds_both_parts(self):
+        from mme.client import encode_multipart
+        body, ctype = encode_multipart({"request": {"model": "x"}, "audio": b"RIFFdata"})
+        self.assertTrue(ctype.startswith("multipart/form-data; boundary="))
+        self.assertIn(b'name="request"', body)
+        self.assertIn(b"Content-Type: application/json", body)
+        self.assertIn(b'{"model": "x"}', body)
+        self.assertIn(b'name="audio"; filename="audio.wav"', body)
+        self.assertIn(b"Content-Type: audio/wav", body)
+        self.assertIn(b"RIFFdata", body)
