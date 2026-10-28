@@ -260,6 +260,17 @@ class MissionsTest(unittest.TestCase):
         env = ms.agent_env(ms.load_missions()[0], "MME_NIGHT_KEY", "build", "do")
         self.assertFalse(any(k.startswith("ANTHROPIC_") for k in env))
 
+    def test_night_agent_never_inherits_the_launchers_claude_session(self):
+        # Launched from inside a Claude Code session, the child picked up the host's OAuth/session vars and sent
+        # the host token to the gateway instead of MME_NIGHT_KEY (401 on every stage).
+        host = {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "sdk", "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH": "1",
+                "CLAUDE_CODE_OAUTH_SCOPES": "user:inference", "CLAUDE_AGENT_SDK_VERSION": "1.0"}
+        with mock.patch.dict(os.environ, host):
+            env = ms.agent_env(ms.load_missions()[0], "MME_NIGHT_KEY", "build", "do")
+        self.assertFalse([k for k in host if k in env])
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], os.environ["MME_NIGHT_KEY"])
+        self.assertIn("CLAUDE_CODE_SUBAGENT_MODEL", env)  # MME's own Claude Code settings still apply
+
     def test_claude_harness_refused_under_meta_only(self):
         (self.repo / "mme" / "policy.env").write_text("MME_POLICY=meta-only\n")
         self.write_missions("c2", template="single", extra="    harness: claude\n")

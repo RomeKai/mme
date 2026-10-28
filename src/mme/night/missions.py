@@ -262,8 +262,11 @@ def sh(cmd, cwd: Path, timeout: float = 600) -> subprocess.CompletedProcess:
 
 
 def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
+    # Drop the launcher's Claude identity too (CLAUDECODE, CLAUDE_CODE_*, CLAUDE_AGENT_SDK_*): started from inside a
+    # Claude Code session, the child otherwise reuses the host's OAuth token and the gateway answers 401.
+    inherited = ("ANTHROPIC_", "CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_AGENT_SDK_")
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith("ANTHROPIC_") and k not in (*harness.ADMIN_SECRETS, "MME_GATEWAY_KEY", "MODEL_API_KEY")}
+           if not k.startswith(inherited) and k not in (*harness.ADMIN_SECRETS, "MME_GATEWAY_KEY", "MODEL_API_KEY")}
     env.update(MME_MODE="replay", MME_HARNESS=f"night-{m.harness}", MME_STAGE=stage, MME_STAGE_KIND=kind)
     if m.harness == "gateway":
         for k, v in harness.claude_code_env(harness.GATEWAY_URL, "", m.model).items():
