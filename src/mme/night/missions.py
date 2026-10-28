@@ -94,6 +94,9 @@ at the end of this stage append what you did, what's left, and gotchas.
 
 THIS STAGE: {instruction}
 DONE WHEN: {done_when}
+EXISTING CONTRACTS: tests already committed on the base branch are the spec. Do not rename or change the signature
+or behaviour of an existing exported function, route or schema unless the instruction says so; if you must, update
+every caller and every existing test of it in this same stage and say why in .mission/PROGRESS.md.
 COMMANDS: nobody can approve a permission prompt tonight, so run ONE plain command per call from the repo root:
 no `cd`, no `&&`, no `VAR=value` prefixes (MME_MODE=replay and the venv are already set). E.g. `python -m pytest -q
 server/tests/test_x.py`, `npm run test --prefix web -- src/measure` (web tests: never `npx vitest`, it needs approval),
@@ -568,6 +571,7 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
                                         agent_env(m, "MME_NIGHT_KEY", st.kind, st.name), spend, st.budget_usd,
                                         timeout_s, poll_s)
         total += used
+        save_stage_log(wt, st.name, outcome, tail)
         commit_all(wt, f"night({m.id}:{st.name}): checkpoint by runner")
         reverted = []
         if st.kind == "review":  # read-only stage: undo anything outside .mission/
@@ -577,19 +581,24 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
                 sh(["git", "checkout", before, "--", *reverted], wt)
                 commit_all(wt, f"night({m.id}:review): revert edits outside .mission/")
         ok, out = check(st.verify, m, wt)
-        if not ok and outcome == "ok" and used < 0.7 * st.budget_usd and not (wt / ".mission/BLOCKED.md").exists():
-            rp = REPAIR_PROMPT.format(id=m.id, stage=st.name, done_when=done_when, tail=out[-1200:],
+        crashed = outcome == "error"  # agent process died (e.g. a provider 400): retry it too, with its own output
+        if not ok and outcome in ("ok", "error") and used < 0.7 * st.budget_usd \
+                and not (wt / ".mission/BLOCKED.md").exists():
+            why = f"Your previous run crashed. Its output ended with:\n{tail[-1200:]}" if crashed else out[-1200:]
+            rp = REPAIR_PROMPT.format(id=m.id, stage=st.name, done_when=done_when, tail=why,
                                       scope=", ".join(m.scope) or "(any)", budget=st.budget_usd - used)
             outcome, tail2, used2 = run_agent(agent_cmd(m, rp, max(5, st.max_turns // 2), readonly=False), wt,
                                               agent_env(m, "MME_NIGHT_KEY", st.kind, st.name + "-repair"), spend,
                                               st.budget_usd - used, timeout_s, poll_s)
             total, used, tail = total + used2, used + used2, tail2
+            save_stage_log(wt, st.name + "-repair", outcome, tail2)
             commit_all(wt, f"night({m.id}:{st.name}-repair): checkpoint by runner")
             ok, out = check(st.verify, m, wt)
         blocked = (wt / ".mission" / "BLOCKED.md").exists()
         sres = ("BLOCKED" if blocked else outcome if outcome in ("OVER_BUDGET", "TIMEOUT") else "PASS" if ok else "FAIL")
         stages_out.append({"stage": st.name, "kind": st.kind, "result": sres, "spend": round(used, 4),
-                           "budget": st.budget_usd, "check": out[-800:], "reverted": reverted})
+                           "budget": st.budget_usd, "check": out[-800:], "reverted": reverted,
+                           "outcome": outcome, "agent_tail": tail[-600:]})
         if sres != "PASS":
             result = sres if st.kind != "review" else "PASS_REVIEW_INCOMPLETE"
             if st.kind != "review":
@@ -606,6 +615,13 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
             "diffstat": sh(["git", "diff", "--shortstat", f"{m.base}...{branch}"], root).stdout.strip() or "no changes",
             "out_of_scope": out_of_scope, "final_check": final_out[-1200:], "review": read("REVIEW.md"),
             "blocked": read("BLOCKED.md")}
+
+
+def save_stage_log(wt: Path, stage: str, outcome: str, tail: str) -> None:
+    """Keep the agent's own output per stage: without it a stage that dies early leaves no trace of why."""
+    logs = wt / ".mission" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / f"{stage}.log").write_text(f"outcome: {outcome}\n\n{tail}", encoding="utf-8")
 
 
 def report_path() -> Path:

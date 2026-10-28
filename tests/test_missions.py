@@ -27,6 +27,9 @@ FAKE_AGENT = textwrap.dedent('''
         sys.exit(0)
     if mode == "slow":
         time.sleep(4)
+    if kind == "plan" and mode == "crash_plan_once" and not stage.endswith("-repair"):
+        print("API Error: 400 cache_control is not supported on content block tool_addition")
+        sys.exit(1)
     if kind == "plan":
         (m / "PLAN.md").write_text("plan: do it")
     elif kind == "build":
@@ -165,6 +168,18 @@ class MissionsTest(unittest.TestCase):
         ms.run(self.args(), spend=lambda: 0.0)
         self.assertEqual(self.results()["m1"]["result"], "PASS")
         self.assertIn("build-repair", self.log.read_text())
+
+    def test_crashed_agent_gets_one_retry_and_its_output_is_kept(self):
+        # A stage whose agent process dies (e.g. a provider 400) used to fail the mission with no trace.
+        os.environ["FAKE_MODE"] = "crash_plan_once"
+        self.prep_yes()
+        ms.run(self.args(), spend=lambda: 0.0)
+        r = self.results()["m1"]
+        self.assertEqual(r["result"], "PASS")
+        self.assertIn("plan-repair", self.log.read_text())
+        wt = Path(r["worktree"])
+        self.assertIn("cache_control", (wt / ".mission" / "logs" / "plan.log").read_text(encoding="utf-8"))
+        self.assertEqual(r["stages"][0]["outcome"], "ok")
 
     def test_always_failing_build_stops_mission(self):
         os.environ["FAKE_MODE"] = "always_fail"
