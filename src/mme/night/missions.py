@@ -94,6 +94,9 @@ at the end of this stage append what you did, what's left, and gotchas.
 
 THIS STAGE: {instruction}
 DONE WHEN: {done_when}
+COMMANDS: nobody can approve a permission prompt tonight, so run ONE plain command per call from the repo root:
+no `cd`, no `&&`, no `VAR=value` prefixes (MME_MODE=replay and the venv are already set). E.g. `python -m pytest -q
+server/tests/test_x.py`, `npm run test --prefix web`, `npx tsc --noEmit -p web`. DONE WHEN is the runner's own check.
 BUDGET: about ${budget:.2f} and {turns} turns for this stage. Follow AGENTS.md "Context protocol": targeted reads only.
 Finish with: git add -A && git commit -m "night({id}:{stage}): <one-line summary>"
 
