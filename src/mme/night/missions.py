@@ -404,6 +404,11 @@ def prep(missions: list[Mission], ask: Callable[[str], str] = input, yes: bool =
     checks = preflight(todo, night)
     for level, msg in checks:
         print(f"  {'✅' if level == 'ok' else '⚠️ ' if level == 'warn' else '❌'} {msg}")
+    real_agent = not os.environ.get("MME_NIGHT_AGENT_CMD")
+    if real_agent and any(m.harness == "gateway" for m in todo) and not os.environ.get("MME_GATEWAY_KEY"):
+        # The briefing agent would fail to authenticate and sit there until the prep timeout.
+        print("\n❌ MME_GATEWAY_KEY is not set: run prep from the ops terminal (set -a; source .env; set +a)")
+        return 1
     for m in todo:
         if not m.brief:
             print(f"\n== {m.id}: brief: false -> no questions")

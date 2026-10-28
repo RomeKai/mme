@@ -342,3 +342,12 @@ class LinkSharedTest(unittest.TestCase):
             p.write_text("defaults:\n  link: [web/node_modules]\nmissions:\n  - id: a\n    goal: g\n    verify: v\n",
                          encoding="utf-8")
             self.assertEqual(ms.load_missions(p)[0].link, ["web/node_modules"])
+
+
+class PrepMissingKeyTest(MissionsTest):
+    def test_prep_stops_before_any_agent_when_the_gateway_key_is_missing(self):
+        # Without the key the real agent can't authenticate and hangs until the prep timeout.
+        with mock.patch.dict(os.environ, {"MME_NIGHT_AGENT_CMD": ""}), mock.patch.object(ms, "run_agent") as run:
+            code = ms.prep(ms.load_missions(), ask=lambda _: "", spend=lambda: 0.0)
+        self.assertEqual(code, 1)
+        run.assert_not_called()
