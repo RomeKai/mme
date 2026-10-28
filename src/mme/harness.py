@@ -46,7 +46,8 @@ def claude_code_env(base_url: str, token_var: str, model: str | None = None) -> 
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": m,
         "ANTHROPIC_SMALL_FAST_MODEL": m,
         "CLAUDE_CODE_SUBAGENT_MODEL": m,
-        "ENABLE_TOOL_SEARCH": "true",
+        # Deferred tool loading sends `tool_addition` content blocks with cache_control; Meta rejects them with 400.
+        "ENABLE_TOOL_SEARCH": "false",
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000",
         # Spark context is 1M; Claude Code assumes 200k for unknown models and caps the compact window to it.
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1048576",
