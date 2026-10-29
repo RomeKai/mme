@@ -406,3 +406,45 @@ class PrepMissingKeyTest(MissionsTest):
             code = ms.prep(ms.load_missions(), ask=lambda _: "", spend=lambda: 0.0)
         self.assertEqual(code, 1)
         run.assert_not_called()
+
+
+class StageRoutingTest(unittest.TestCase):
+    """Build-kind stages on a volume backend (Baseten gateway), plan/review on a stronger model (Wonder)."""
+
+    def mission(self) -> ms.Mission:
+        return ms.Mission(id="r1", goal="g", verify="true", model="muse-spark-1.3-contributor")
+
+    def env(self, kind: str, extra: dict) -> dict:
+        base = {"MME_NIGHT_KEY": "sk-night", "BASETEN_GATEWAY_KEY": "sk-baseten"}
+        with mock.patch.dict(os.environ, {**base, **extra}):
+            return ms.agent_env(self.mission(), "MME_NIGHT_KEY", kind, kind)
+
+    def test_without_routing_every_stage_uses_the_mission_model(self):
+        for kind in ("plan", "build", "review"):
+            env = self.env(kind, {})
+            self.assertEqual(env["ANTHROPIC_MODEL"], "muse-spark-1.3-contributor")
+            self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-night")
+
+    def test_build_stages_go_to_the_build_gateway_with_its_own_key(self):
+        env = self.env("build", {"MME_NIGHT_BUILD_URL": "http://127.0.0.1:4001",
+                                 "MME_NIGHT_BUILD_MODEL": "muse-spark-open",
+                                 "MME_NIGHT_BUILD_TOKEN_VAR": "BASETEN_GATEWAY_KEY"})
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:4001")
+        self.assertEqual(env["ANTHROPIC_MODEL"], "muse-spark-open")
+        self.assertEqual(env["CLAUDE_CODE_SUBAGENT_MODEL"], "muse-spark-open")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-baseten")
+        self.assertNotIn("BASETEN_GATEWAY_KEY", env)  # the key reaches the agent only as its auth token
+
+    def test_plan_and_review_use_the_think_model_on_the_main_gateway(self):
+        routes = {"MME_NIGHT_BUILD_URL": "http://127.0.0.1:4001", "MME_NIGHT_BUILD_MODEL": "muse-spark-open",
+                  "MME_NIGHT_BUILD_TOKEN_VAR": "BASETEN_GATEWAY_KEY", "MME_NIGHT_THINK_MODEL": "muse-wonder-1.0"}
+        for kind in ("plan", "review", "prep"):
+            env = self.env(kind, routes)
+            self.assertEqual(env["ANTHROPIC_MODEL"], "muse-wonder-1.0", kind)
+            self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-night", kind)
+            self.assertNotEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:4001", kind)
+
+    def test_build_route_needs_url_model_and_token(self):
+        env = self.env("build", {"MME_NIGHT_BUILD_URL": "http://127.0.0.1:4001"})
+        self.assertEqual(env["ANTHROPIC_MODEL"], "muse-spark-1.3-contributor")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "sk-night")

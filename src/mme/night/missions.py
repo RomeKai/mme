@@ -270,6 +270,19 @@ def sh(cmd, cwd: Path, timeout: float = 600) -> subprocess.CompletedProcess:
                           errors="replace", timeout=timeout, shell=use_shell)
 
 
+def stage_route(m: Mission, token_var: str, kind: str) -> tuple[str, str, str]:
+    """(gateway url, model, token env var) for a stage. Opt-in via env so missions.yaml (and its brief hashes) stay
+    untouched: build-kind stages go to a volume backend (MME_NIGHT_BUILD_URL/_MODEL/_TOKEN_VAR, e.g. the Baseten
+    gateway), the others (prep, plan, review) to MME_NIGHT_THINK_MODEL on the main gateway. Spend of build stages on
+    a separate gateway is invisible to the main gateway's spend probe: they are bounded by turns and timeout."""
+    if kind == "build":
+        url, model, tok = (os.environ.get(f"MME_NIGHT_BUILD_{k}") for k in ("URL", "MODEL", "TOKEN_VAR"))
+        if url and model and tok:
+            return url, model, tok
+        return harness.GATEWAY_URL, m.model, token_var
+    return harness.GATEWAY_URL, os.environ.get("MME_NIGHT_THINK_MODEL") or m.model, token_var
+
+
 def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
     # Drop the launcher's Claude identity too (CLAUDECODE, CLAUDE_CODE_*, CLAUDE_AGENT_SDK_*): started from inside a
     # Claude Code session, the child otherwise reuses the host's OAuth token and the gateway answers 401.
@@ -278,9 +291,11 @@ def agent_env(m: Mission, token_var: str, kind: str, stage: str) -> dict:
            if not k.startswith(inherited) and k not in (*harness.ADMIN_SECRETS, "MME_GATEWAY_KEY", "MODEL_API_KEY")}
     env.update(MME_MODE="replay", MME_HARNESS=f"night-{m.harness}", MME_STAGE=stage, MME_STAGE_KIND=kind)
     if m.harness == "gateway":
-        for k, v in harness.claude_code_env(harness.GATEWAY_URL, "", m.model).items():
+        url, model, token = stage_route(m, token_var, kind)
+        for k, v in harness.claude_code_env(url, "", model).items():
             env[k] = v
-        env["ANTHROPIC_AUTH_TOKEN"] = os.environ.get(token_var, "")
+        env["ANTHROPIC_AUTH_TOKEN"] = os.environ.get(token, "")
+        env.pop(token, None)  # the key reaches the agent only as its auth token
     elif m.harness == "muse-code":
         env["META_API_KEY"] = os.environ.get("MODEL_API_KEY", "")
     # harness "claude": ANTHROPIC_* already stripped -> Claude Code uses your own login (Anthropic plan, no Meta credits)
