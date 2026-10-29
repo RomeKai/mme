@@ -111,6 +111,8 @@ class HarnessTest(unittest.TestCase):
         r = subprocess.run([bash, "-c", script], capture_output=True, text=True, env=env, cwd=self.tmp)
         self.assertEqual(r.stdout.strip(), "http://127.0.0.1:4000|gw|gateway|stripped")
 
+    # Patching os.name to "nt" on POSIX makes pathlib build WindowsPath, which Python 3.13 refuses to instantiate.
+    @unittest.skipUnless(os.name == "nt", "needs real Windows paths")
     def test_find_bash_skips_wsl_launcher_on_windows(self):
         git_root = self.tmp / "Git"
         (git_root / "cmd").mkdir(parents=True)

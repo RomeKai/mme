@@ -342,6 +342,7 @@ def run_agent(cmd: list[str], cwd: Path, env: dict, spend: SpendFn, max_usd: flo
                 proc.kill()
             break
     reader.join(10)
+    proc.stdout.close()
     out = "".join(chunks)
     return (outcome or ("ok" if proc.returncode == 0 else "error")), out[-6000:], round(spend() - s0, 4)
 
