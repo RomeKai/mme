@@ -39,6 +39,8 @@ FAKE_AGENT = textwrap.dedent('''
             pass
         elif mode == "always_fail":
             pass
+        elif mode == "needs_two_repairs" and stage != "build-repair-2":
+            pass
         else:
             pathlib.Path("done.txt").write_text("done")
             if mode == "out_of_scope":
@@ -259,6 +261,25 @@ class MissionsTest(unittest.TestCase):
         self.assertEqual(self.results()["c1"]["result"], "PASS")
         env = ms.agent_env(ms.load_missions()[0], "MME_NIGHT_KEY", "build", "do")
         self.assertFalse(any(k.startswith("ANTHROPIC_") for k in env))
+
+    def test_build_that_needs_a_second_repair_passes(self):
+        # 2026-10-28 dxf-full-export: the agent ended its turn announcing "re-running..." with 3 tests red;
+        # one repair was not enough.
+        os.environ["FAKE_MODE"] = "needs_two_repairs"
+        self.prep_yes()
+        ms.run(self.args(), spend=lambda: 0.0)
+        self.assertEqual(self.results()["m1"]["result"], "PASS")
+        self.assertIn("build-repair-2", self.log.read_text())
+
+    def test_night_agents_cannot_delegate_to_background_subagents(self):
+        # 2026-10-28 reform-ops: the agent delegated to a subagent and ended "waiting on the result" (orphaned).
+        m = ms.load_missions()[0]
+        m.harness = "gateway"
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MME_NIGHT_AGENT_CMD", None)
+            cmd = ms.agent_cmd(m, "do it", 10, readonly=False)
+        self.assertIn("--disallowedTools", cmd)
+        self.assertIn("Agent", cmd[cmd.index("--disallowedTools") + 1])
 
     def test_file_writing_stages_have_enough_turns(self):
         # 2026-10-28: plan (12) and review (8) ran out of turns while reading context and never wrote their file.

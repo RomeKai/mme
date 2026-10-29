@@ -43,6 +43,8 @@ from mme.paths import config_dir, project_root, state_dir
 from mme.shell import shell_args
 
 # ---------------------------------------------------------------- templates
+MAX_REPAIRS = 2  # per stage, within the stage budget
+
 TEMPLATES: dict[str, list[dict]] = {
     "feature": [
         {"name": "plan", "share": 0.10, "max_turns": 30, "kind": "plan", "verify": "file:.mission/PLAN.md",
@@ -107,6 +109,9 @@ server/tests/test_x.py`, `npm run test --prefix web -- src/measure` (web tests: 
 `npx tsc --noEmit -p web`, `git add -A`, `git commit -m "..."`. DONE WHEN is the runner's own check.
 BUDGET: about ${budget:.2f} and {turns} turns for this stage. Follow AGENTS.md "Context protocol": targeted reads only.
 Finish with: git add -A && git commit -m "night({id}:{stage}): <one-line summary>"
+
+ENDING: end your turn only when DONE WHEN passes or after writing BLOCKED.md. Never end it announcing a next
+step ("re-running...", "waiting on..."): run it now. Do the work yourself; there are no subagents tonight.
 
 IF BLOCKED (a decision you can't make, a file outside SCOPE, the same error twice): do not guess. Write
 .mission/BLOCKED.md (what you tried, the exact error, the decision you need), commit it, and stop.
@@ -308,6 +313,9 @@ def agent_cmd(m: Mission, prompt: str, turns: int, readonly: bool) -> list[str]:
     if m.harness in ("gateway", "claude"):
         cmd = [claude_bin(), "-p", prompt, "--max-turns", str(turns), "--output-format", "json"]
         cmd += ["--allowedTools", "Read,Grep,Glob"] if readonly else ["--permission-mode", "acceptEdits"]
+        # Unattended: a stage that hands work to a (background) subagent ends "waiting on the result" and the
+        # subagent is orphaned when the process exits. The stage agent does the work itself.
+        cmd += ["--disallowedTools", "Agent,Task"]
         return cmd
     if m.harness == "muse-code":
         return ["muse", "exec", "--max-model-steps", str(turns), "--disable-approval", "--json", prompt]
@@ -589,18 +597,24 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
                 sh(["git", "checkout", before, "--", *reverted], wt)
                 commit_all(wt, f"night({m.id}:review): revert edits outside .mission/")
         ok, out = check(st.verify, m, wt)
-        crashed = outcome == "error"  # agent process died (e.g. a provider 400): retry it too, with its own output
-        if not ok and outcome in ("ok", "error") and used < 0.7 * st.budget_usd \
-                and not (wt / ".mission/BLOCKED.md").exists():
+        for attempt in range(1, MAX_REPAIRS + 1):
+            # Repair a failed check (agent ended "ok" too early) or a crashed agent (provider 400, process died),
+            # while the stage still has budget. Spark sometimes ends its turn announcing "re-running..."; one
+            # repair was not always enough (2026-10-28).
+            if ok or outcome not in ("ok", "error") or used >= 0.7 * st.budget_usd \
+                    or (wt / ".mission/BLOCKED.md").exists():
+                break
+            crashed = outcome == "error"
             why = f"Your previous run crashed. Its output ended with:\n{tail[-1200:]}" if crashed else out[-1200:]
             rp = REPAIR_PROMPT.format(id=m.id, stage=st.name, done_when=done_when, tail=why,
                                       scope=", ".join(m.scope) or "(any)", budget=st.budget_usd - used)
+            label = st.name + ("-repair" if attempt == 1 else f"-repair-{attempt}")
             outcome, tail2, used2 = run_agent(agent_cmd(m, rp, st.max_turns, readonly=False), wt,
-                                              agent_env(m, "MME_NIGHT_KEY", st.kind, st.name + "-repair"), spend,
+                                              agent_env(m, "MME_NIGHT_KEY", st.kind, label), spend,
                                               st.budget_usd - used, timeout_s, poll_s)
             total, used, tail = total + used2, used + used2, tail2
-            save_stage_log(wt, st.name + "-repair", outcome, tail2)
-            commit_all(wt, f"night({m.id}:{st.name}-repair): checkpoint by runner")
+            save_stage_log(wt, label, outcome, tail2)
+            commit_all(wt, f"night({m.id}:{label}): checkpoint by runner")
             ok, out = check(st.verify, m, wt)
         blocked = (wt / ".mission" / "BLOCKED.md").exists()
         sres = ("BLOCKED" if blocked else outcome if outcome in ("OVER_BUDGET", "TIMEOUT") else "PASS" if ok else "FAIL")
