@@ -517,6 +517,20 @@ def check(spec: str | None, m: Mission, wt: Path) -> tuple[bool, str]:
     return r.returncode == 0, (r.stdout + r.stderr)[-1500:]
 
 
+STAGE_ARTIFACTS = ("PLAN.md", "REVIEW.md", "BLOCKED.md")
+
+
+def stage_check(st: Stage, m: Mission, wt: Path, before: str, must_change: bool) -> tuple[bool, str]:
+    """The stage's own check, plus: the stage that builds must leave changes outside .mission/. A green verify on
+    an untouched tree only proves the base already passed it."""
+    ok, out = check(st.verify, m, wt)
+    if ok and must_change:
+        changed = sh(["git", "diff", "--name-only", before, "HEAD"], wt).stdout.split()
+        if not [f for f in changed if not f.startswith(".mission/")]:
+            return False, "no changes outside .mission/ in this stage: nothing was built"
+    return ok, out
+
+
 def commit_all(wt: Path, msg: str) -> None:
     if sh(["git", "status", "--porcelain"], wt).stdout.strip():
         sh(["git", "add", "-A"], wt)
@@ -581,9 +595,15 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
     exclude_links(root, m.link)
     link_shared(root, wt, m.link)
     (wt / ".mission").mkdir(exist_ok=True)
+    # Artifacts committed on the base branch belong to an earlier mission: left in place, `file:` checks pass
+    # before this mission's agent writes anything (29 Oct: a do-nothing run reported PASS).
+    for stale in STAGE_ARTIFACTS:
+        (wt / ".mission" / stale).unlink(missing_ok=True)
+    commit_all(wt, f"night({m.id}): clear .mission artifacts inherited from {m.base}")
     (wt / ".mission" / "PROGRESS.md").write_text(f"# Mission {m.id}\n\n## Goal\n{m.goal}\n\n## Log\n", encoding="utf-8")
 
     started, total, stages_out, result = time.time(), 0.0, [], "PASS"
+    first_build = next((s.name for s in m.stages if s.kind == "build"), None)
     for n, st in enumerate(m.stages, 1):
         if time.time() - started > m.timeout_min * 60:
             result = "TIMEOUT"
@@ -611,7 +631,8 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
             if reverted:
                 sh(["git", "checkout", before, "--", *reverted], wt)
                 commit_all(wt, f"night({m.id}:review): revert edits outside .mission/")
-        ok, out = check(st.verify, m, wt)
+        must_change = st.name == first_build
+        ok, out = stage_check(st, m, wt, before, must_change)
         for attempt in range(1, MAX_REPAIRS + 1):
             # Repair a failed check (agent ended "ok" too early) or a crashed agent (provider 400, process died),
             # while the stage still has budget. Spark sometimes ends its turn announcing "re-running..."; one
@@ -630,7 +651,7 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
             total, used, tail = total + used2, used + used2, tail2
             save_stage_log(wt, label, outcome, tail2)
             commit_all(wt, f"night({m.id}:{label}): checkpoint by runner")
-            ok, out = check(st.verify, m, wt)
+            ok, out = stage_check(st, m, wt, before, must_change)
         blocked = (wt / ".mission" / "BLOCKED.md").exists()
         sres = ("BLOCKED" if blocked else outcome if outcome in ("OVER_BUDGET", "TIMEOUT") else "PASS" if ok else "FAIL")
         stages_out.append({"stage": st.name, "kind": st.kind, "result": sres, "spend": round(used, 4),

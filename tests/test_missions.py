@@ -25,6 +25,9 @@ FAKE_AGENT = textwrap.dedent('''
             {"question": "Max rooms?", "why": "test size", "default": "12"}],
             "risks": ["concave sites"], "budget_ok": True})}))
         sys.exit(0)
+    if mode == "noop":
+        print("fake", stage, "did nothing")
+        sys.exit(0)
     if mode == "slow":
         time.sleep(4)
     if kind == "plan" and mode == "crash_plan_once" and not stage.endswith("-repair"):
@@ -37,7 +40,7 @@ FAKE_AGENT = textwrap.dedent('''
             (m / "BLOCKED.md").write_text("need a decision on units")
         elif mode == "fail_then_repair" and not stage.endswith("-repair"):
             pass
-        elif mode == "always_fail":
+        elif mode in ("always_fail", "noop_build"):
             pass
         elif mode == "needs_two_repairs" and stage != "build-repair-2":
             pass
@@ -182,6 +185,35 @@ class MissionsTest(unittest.TestCase):
         wt = Path(r["worktree"])
         self.assertIn("cache_control", (wt / ".mission" / "logs" / "plan.log").read_text(encoding="utf-8"))
         self.assertEqual(r["stages"][0]["outcome"], "ok")
+
+    def commit_on_main(self, files: dict[str, str]):
+        for rel, text in files.items():
+            p = self.repo / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text)
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "base"], cwd=self.repo, check=True, capture_output=True)
+
+    def test_artifacts_inherited_from_base_do_not_pass_stage_checks(self):
+        # 29 Oct: the base branch carried another mission's PLAN.md/REVIEW.md and an agent that did nothing got PASS.
+        self.commit_on_main({".mission/PLAN.md": "old plan", ".mission/REVIEW.md": "old review", "done.txt": "old"})
+        os.environ["FAKE_MODE"] = "noop"
+        self.prep_yes()
+        ms.run(self.args(), spend=lambda: 0.0)
+        r = self.results()["m1"]
+        self.assertNotIn("PASS", r["result"])
+        self.assertEqual(r["stages"][0]["result"], "FAIL")
+
+    def test_build_stage_without_changes_fails_even_if_verify_passes(self):
+        self.commit_on_main({"done.txt": "already there"})
+        os.environ["FAKE_MODE"] = "noop_build"
+        self.prep_yes()
+        ms.run(self.args(), spend=lambda: 0.0)
+        r = self.results()["m1"]
+        self.assertEqual(r["result"], "FAIL")
+        build = next(s for s in r["stages"] if s["stage"] == "build")
+        self.assertEqual(build["result"], "FAIL")
+        self.assertIn("no changes", build["check"])
 
     def test_always_failing_build_stops_mission(self):
         os.environ["FAKE_MODE"] = "always_fail"
