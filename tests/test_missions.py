@@ -260,6 +260,14 @@ class MissionsTest(unittest.TestCase):
         env = ms.agent_env(ms.load_missions()[0], "MME_NIGHT_KEY", "build", "do")
         self.assertFalse(any(k.startswith("ANTHROPIC_") for k in env))
 
+    def test_file_writing_stages_have_enough_turns(self):
+        # 2026-10-28: plan (12) and review (8) ran out of turns while reading context and never wrote their file.
+        for name, stages in ms.TEMPLATES.items():
+            for st in stages:
+                if str(st.get("verify", "")).startswith("file:"):
+                    self.assertGreaterEqual(st["max_turns"], 20, f"{name}/{st['name']}")
+                    self.assertIn("first", st["instruction"], f"{name}/{st['name']} must write its file early")
+
     def test_night_agent_never_inherits_the_launchers_claude_session(self):
         # Launched from inside a Claude Code session, the child picked up the host's OAuth/session vars and sent
         # the host token to the gateway instead of MME_NIGHT_KEY (401 on every stage).

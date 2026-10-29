@@ -45,33 +45,37 @@ from mme.shell import shell_args
 # ---------------------------------------------------------------- templates
 TEMPLATES: dict[str, list[dict]] = {
     "feature": [
-        {"name": "plan", "share": 0.10, "max_turns": 12, "kind": "plan", "verify": "file:.mission/PLAN.md",
+        {"name": "plan", "share": 0.10, "max_turns": 30, "kind": "plan", "verify": "file:.mission/PLAN.md",
          "instruction": "Read the context and the relevant code. Write .mission/PLAN.md: approach, files you will touch "
-                        "(inside SCOPE), the list of tests you will write, and risks. Change nothing else."},
+                        "(inside SCOPE), the list of tests you will write, and risks. Change nothing else."
+                        "Write the file within your first few turns (a short draft is fine), then refine it."},
         {"name": "build", "share": 0.60, "max_turns": 45, "kind": "build", "verify": "mission",
          "instruction": "Implement .mission/PLAN.md with TDD: write the tests first, then the code, until DONE WHEN passes."},
         {"name": "harden", "share": 0.20, "max_turns": 25, "kind": "build", "verify": "mission",
          "instruction": "Add edge-case tests for the risks in PLAN.md, fix real bugs they reveal, keep everything green. "
                         "No new features."},
-        {"name": "review", "share": 0.10, "max_turns": 8, "kind": "review", "verify": "file:.mission/REVIEW.md",
+        {"name": "review", "share": 0.10, "max_turns": 25, "kind": "review", "verify": "file:.mission/REVIEW.md",
          "instruction": "Review `git diff {base}...HEAD` like a senior reviewer: correctness, scope, tests, security, "
                         "cost. Write .mission/REVIEW.md: findings ranked blocker/major/minor with file:line, then a "
-                        "merge recommendation. Do NOT modify any other file."},
+                        "merge recommendation. Do NOT modify any other file."
+                        " Write the file within your first few turns (a short draft is fine), then refine it."},
     ],
     "fix": [
         {"name": "reproduce", "share": 0.20, "max_turns": 15, "kind": "build", "verify": None,
          "instruction": "Write a failing test that reproduces the bug described in the goal. Commit it. Don't fix yet."},
         {"name": "fix", "share": 0.65, "max_turns": 35, "kind": "build", "verify": "mission",
          "instruction": "Fix the root cause so the reproducing test and DONE WHEN pass. Smallest correct change."},
-        {"name": "review", "share": 0.15, "max_turns": 8, "kind": "review", "verify": "file:.mission/REVIEW.md",
+        {"name": "review", "share": 0.15, "max_turns": 25, "kind": "review", "verify": "file:.mission/REVIEW.md",
          "instruction": "Review `git diff {base}...HEAD`. Write .mission/REVIEW.md (blocker/major/minor + merge "
-                        "recommendation). Do NOT modify any other file."},
+                        "recommendation). Do NOT modify any other file."
+                        " Write the file within your first few turns (a short draft is fine), then refine it."},
     ],
     "tests": [
         {"name": "write", "share": 0.85, "max_turns": 35, "kind": "build", "verify": "mission",
          "instruction": "Write the tests described in the goal. Fix code only for real bugs the tests reveal."},
-        {"name": "review", "share": 0.15, "max_turns": 6, "kind": "review", "verify": "file:.mission/REVIEW.md",
-         "instruction": "Review `git diff {base}...HEAD`. Write .mission/REVIEW.md. Do NOT modify any other file."},
+        {"name": "review", "share": 0.15, "max_turns": 20, "kind": "review", "verify": "file:.mission/REVIEW.md",
+         "instruction": "Review `git diff {base}...HEAD`. Write .mission/REVIEW.md. Do NOT modify any other file. "
+                        "Write the file within your first few turns (a short draft is fine), then refine it."},
     ],
     "single": [
         {"name": "do", "share": 1.0, "max_turns": 25, "kind": "build", "verify": "mission",
@@ -590,7 +594,7 @@ def run_mission(m: Mission, spend: SpendFn, night_dir: Path, date: str, poll_s: 
             why = f"Your previous run crashed. Its output ended with:\n{tail[-1200:]}" if crashed else out[-1200:]
             rp = REPAIR_PROMPT.format(id=m.id, stage=st.name, done_when=done_when, tail=why,
                                       scope=", ".join(m.scope) or "(any)", budget=st.budget_usd - used)
-            outcome, tail2, used2 = run_agent(agent_cmd(m, rp, max(5, st.max_turns // 2), readonly=False), wt,
+            outcome, tail2, used2 = run_agent(agent_cmd(m, rp, st.max_turns, readonly=False), wt,
                                               agent_env(m, "MME_NIGHT_KEY", st.kind, st.name + "-repair"), spend,
                                               st.budget_usd - used, timeout_s, poll_s)
             total, used, tail = total + used2, used + used2, tail2
