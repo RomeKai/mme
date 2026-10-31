@@ -180,3 +180,20 @@ class TranscribeTest(MMETest):
         self.assertIn(b'name="audio"; filename="audio.wav"', body)
         self.assertIn(b"Content-Type: audio/wav", body)
         self.assertIn(b"RIFFdata", body)
+
+    def test_image_edit_sends_data_url_records_cost_and_caches(self):
+        import base64
+        png = b"\x89PNGguide"
+        out = base64.b64encode(b"result").decode()
+        m, t = self.make([{"data": [{"b64_json": out}]}])
+        got = m.image_edit("restyle", png, tag="render")
+        self.assertEqual(got, [b"result"])
+        url, payload, headers = t.calls[0]
+        self.assertTrue(url.endswith("/images/edits"))
+        self.assertEqual(payload["images"][0]["image_url"], "data:image/png;base64," + base64.b64encode(png).decode())
+        self.assertEqual(payload["prompt"], "restyle")
+        self.assertNotIn("Authorization", payload)
+        self.assertEqual(headers["Authorization"], "Bearer k")
+        again = m.image_edit("restyle", png, tag="render")
+        self.assertEqual(again, [b"result"])
+        self.assertEqual(len(t.calls), 1)  # cache hit, no second call

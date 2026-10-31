@@ -321,6 +321,19 @@ class MME:
             self.record(model="muse-image-1.0", cost_usd=providers.unit_cost("muse-image-1.0", len(images)), tag=tag, images=len(images))
         return images
 
+    def image_edit(self, prompt: str, image_bytes: bytes, *, tag: str = "render", n: int = 1, use_cache: bool = True,
+                   mime: str = "image/png", **params: Any) -> list[bytes]:
+        """Muse Image image-conditioned edit (`POST /v1/images/edits`, JSON with a base64 data URL in `images`).
+        Returns PNG/JPEG bytes. $0.01 per returned image. The cache key hashes the input image, the wire carries it."""
+        base = {"model": "muse-image-1.0", "prompt": prompt, "n": n, "response_format": "b64_json", **params}
+        key = {**base, "image_sha256": hashlib.sha256(image_bytes).hexdigest()}
+        wire = {**base, "images": [{"image_url": f"data:{mime};base64,{base64.b64encode(image_bytes).decode()}"}]}
+        data, hit = self._post("images/edits", key, use_cache=use_cache, wire=wire)
+        images = [base64.b64decode(d["b64_json"]) for d in data.get("data", []) if d.get("b64_json")]
+        if not hit:
+            self.record(model="muse-image-1.0", cost_usd=providers.unit_cost("muse-image-1.0", len(images)), tag=tag, images=len(images))
+        return images
+
 
 _default: MME | None = None
 
