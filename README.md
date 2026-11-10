@@ -1,5 +1,13 @@
 # MME — budget-safe agent harness for the Meta Model API
 
+[![CI](https://github.com/RomeKai/mme/actions/workflows/ci.yml/badge.svg)](https://github.com/RomeKai/mme/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.2.0%20pre--release-orange?style=flat-square)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
+![LiteLLM](https://img.shields.io/badge/LiteLLM-gateway-111111?style=flat-square)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-budgets-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-D97757?style=flat-square&logo=anthropic&logoColor=white)
+
 **MME** sits on top of [ECC](https://github.com/affaan-m/ECC) (Everything Claude Code). It lets you run Claude Code,
 Muse Code or OpenCode on Meta's **Muse** models without burning your credits, and without missing your deadline.
 
